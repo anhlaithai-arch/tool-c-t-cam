@@ -164,10 +164,12 @@ var CountingApp = (() => {
     REFINE: () => REFINE,
     boxBlur: () => boxBlur,
     changedFraction: () => changedFraction,
+    detectColorPeaks: () => detectColorPeaks,
     detectEvents: () => detectEvents,
     eventFeatures: () => eventFeatures,
     nearestEvent: () => nearestEvent,
     numberEvents: () => numberEvents,
+    parcelFraction: () => parcelFraction,
     refineEvents: () => refineEvents
   });
   function boxBlur(img) {
@@ -321,6 +323,60 @@ var CountingApp = (() => {
       return out;
     });
   }
+  function parcelFraction(rgba, { minV = 110, greenHue = [70, 180], greenSat = 0.235 } = {}) {
+    let n = 0, tot = 0;
+    for (let i = 0; i < rgba.length; i += 4) {
+      const r = rgba[i], g = rgba[i + 1], b = rgba[i + 2];
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+      const s = mx ? d / mx : 0;
+      let h = 0;
+      if (d) {
+        if (mx === r) h = 60 * ((g - b) / d % 6);
+        else if (mx === g) h = 60 * ((b - r) / d + 2);
+        else h = 60 * ((r - g) / d + 4);
+        if (h < 0) h += 360;
+      }
+      const green = h >= greenHue[0] && h <= greenHue[1] && s > greenSat;
+      if (!green && mx > minV) n++;
+      tot++;
+    }
+    return tot ? n / tot : 0;
+  }
+  function detectColorPeaks(times, sig, { k = 2.5, minThr = 0.035, winS = 2.5, sepS = 0.7 } = {}) {
+    const n = sig.length;
+    if (n < 3) return [];
+    const base = new Float64Array(n);
+    let lo = 0, hi = 0;
+    for (let i = 0; i < n; i++) {
+      while (times[lo] < times[i] - winS) lo++;
+      while (hi < n && times[hi] <= times[i] + winS) hi++;
+      base[i] = median(sig.slice(lo, hi));
+    }
+    const ex = sig.map((v, i) => v - base[i]);
+    const med = median(ex);
+    const mad = median(ex.map((v) => Math.abs(v - med))) + 1e-6;
+    const thr = Math.max(minThr, k * mad);
+    const peaks = [];
+    for (let i = 1; i < n - 1; i++) {
+      if (ex[i] > thr && ex[i] >= ex[i - 1] && ex[i] >= ex[i + 1]) {
+        const last = peaks[peaks.length - 1];
+        if (last && times[i] - times[last] < sepS) {
+          if (ex[i] > ex[last]) peaks[peaks.length - 1] = i;
+        } else peaks.push(i);
+      }
+    }
+    return peaks.map((i) => ({
+      id: `pk_${Math.round(times[i] * 1e3)}`,
+      startS: times[Math.max(0, i - 2)],
+      endS: times[Math.min(n - 1, i + 2)],
+      peakS: times[i],
+      peakIdx: i,
+      maxAct: ex[i],
+      durationS: 0,
+      kind: "drop",
+      reason: "Kiện (màu) đi vào miệng bao"
+    }));
+  }
   function numberEvents(events, decisions = {}, counts = {}) {
     const sorted = [...events].sort((a, b) => a.peakS - b.peakS);
     let n = 0;
@@ -355,8 +411,7 @@ var CountingApp = (() => {
 
   // browser/counter.mjs
   var MAX_W = 160;
-  function grayOf(ctx, w, h) {
-    const d = ctx.getImageData(0, 0, w, h).data;
+  function grayOf(ctx, w, h, d = ctx.getImageData(0, 0, w, h).data) {
     const g = new Uint8Array(w * h);
     for (let i = 0, j = 0; j < g.length; i += 4, j++) g[j] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
     return { w, h, data: g };
@@ -368,7 +423,7 @@ var CountingApp = (() => {
     cv.width = w;
     cv.height = h;
     const ctx = cv.getContext("2d", { willReadFrequently: true });
-    const times = [], act = [], grays = [];
+    const times = [], act = [], grays = [], parcel = [];
     let prev = null;
     const dt = 1 / fps;
     for (let t = startS; t <= endS; t += dt) {
@@ -376,7 +431,9 @@ var CountingApp = (() => {
       await seek(video, Math.min(t, video.duration - 1e-3), 5e3, { waitFrame: false });
       const mt = t;
       ctx.drawImage(video, roi.x, roi.y, roi.w, roi.h, 0, 0, w, h);
-      const g = boxBlur(grayOf(ctx, w, h));
+      const rgba = ctx.getImageData(0, 0, w, h).data;
+      const g = boxBlur(grayOf(ctx, w, h, rgba));
+      parcel.push(parcelFraction(rgba));
       times.push(mt);
       grays.push(g);
       act.push(prev ? changedFraction(prev, g) : 0);
@@ -385,7 +442,7 @@ var CountingApp = (() => {
     }
     onProgress?.(endS - startS, endS - startS);
     const events = refineEvents(detectEvents(times, act, opts), grays, opts);
-    return { times, act, events };
+    return { times, act, parcel, events, colorPeaks: detectColorPeaks(times, parcel) };
   }
   function contextBox(roi, W, H, grow = 0.6) {
     const cx = roi.x + roi.w / 2, cy = roi.y + roi.h / 2;

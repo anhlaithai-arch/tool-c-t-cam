@@ -138,6 +138,63 @@ export function refineEvents(events, grays, opts = {}) {
 }
 
 /**
+ * Tỷ lệ điểm "màu kiện" trong vùng miệng bao: sáng và KHÔNG phải màu xanh lòng bao.
+ * Lòng bao xanh, tay áo tối; kiện thường trắng/nâu/đỏ -> kiện đi vào miệng bao tạo đỉnh nhọn.
+ * rgba: Uint8ClampedArray (ImageData.data).
+ */
+export function parcelFraction(rgba, { minV = 110, greenHue = [70, 180], greenSat = 0.235 } = {}) {
+  let n = 0, tot = 0;
+  for (let i = 0; i < rgba.length; i += 4) {
+    const r = rgba[i], g = rgba[i + 1], b = rgba[i + 2];
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+    const s = mx ? d / mx : 0;
+    let h = 0;
+    if (d) {
+      if (mx === r) h = 60 * (((g - b) / d) % 6);
+      else if (mx === g) h = 60 * ((b - r) / d + 2);
+      else h = 60 * ((r - g) / d + 4);
+      if (h < 0) h += 360;
+    }
+    const green = h >= greenHue[0] && h <= greenHue[1] && s > greenSat;
+    if (!green && mx > minV) n++;
+    tot++;
+  }
+  return tot ? n / tot : 0;
+}
+
+/**
+ * Đỉnh màu kiện: vượt nền trượt (trung vị ±winS) hơn max(minThr, k·MAD), cực đại cục bộ, cách nhau >= sepS.
+ * Đo trên video thật (TO 28 đơn, camera B): k=2.5 bắt đủ 28/28 lượt bỏ kiện của người bắn hàng.
+ */
+export function detectColorPeaks(times, sig, { k = 2.5, minThr = 0.035, winS = 2.5, sepS = 0.7 } = {}) {
+  const n = sig.length;
+  if (n < 3) return [];
+  const base = new Float64Array(n);
+  let lo = 0, hi = 0;
+  for (let i = 0; i < n; i++) {
+    while (times[lo] < times[i] - winS) lo++;
+    while (hi < n && times[hi] <= times[i] + winS) hi++;
+    base[i] = median(sig.slice(lo, hi));
+  }
+  const ex = sig.map((v, i) => v - base[i]);
+  const med = median(ex);
+  const mad = median(ex.map((v) => Math.abs(v - med))) + 1e-6;
+  const thr = Math.max(minThr, k * mad);
+  const peaks = [];
+  for (let i = 1; i < n - 1; i++) {
+    if (ex[i] > thr && ex[i] >= ex[i - 1] && ex[i] >= ex[i + 1]) {
+      const last = peaks[peaks.length - 1];
+      if (last && times[i] - times[last] < sepS) { if (ex[i] > ex[last]) peaks[peaks.length - 1] = i; }
+      else peaks.push(i);
+    }
+  }
+  return peaks.map((i) => ({
+    id: `pk_${Math.round(times[i] * 1000)}`, startS: times[Math.max(0, i - 2)], endS: times[Math.min(n - 1, i + 2)],
+    peakS: times[i], peakIdx: i, maxAct: ex[i], durationS: 0, kind: 'drop', reason: 'Kiện (màu) đi vào miệng bao',
+  }));
+}
+
+/**
  * Đánh thứ tự cho các lượt đã duyệt. decisions: {[id]: 'accept'|'reject'|undefined}; count: {[id]: số kiện} (mặc định 1).
  * Lượt 'drop' chưa duyệt mặc định được tính (đề xuất của AI), 'occlusion' chưa duyệt mặc định không tính.
  * Trả {items: [{...event, counted, firstIndex, lastIndex, label}], total}

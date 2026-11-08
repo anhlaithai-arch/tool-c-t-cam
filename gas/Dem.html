@@ -343,7 +343,8 @@
       body.append(head);
       body.append(Object.assign(document.createElement('div'), { className: 'muted', textContent: `${fmt(it.startS)}–${fmt(it.endS)}${st.sync ? ' · ' + wallStr(it.peakS) : ''} · ${it.reason}` }));
       const fm = st.fmsMatch && st.fmsMatch[it.id];
-      if (fm) body.append(Object.assign(document.createElement('div'), { className: 'okc', textContent: `Khớp FMS: ${fm.order} (kiện ${fm.index}/${fm.total}, sau quét ${fm.lag.toFixed(1)}s)` }));
+      if (fm) body.append(Object.assign(document.createElement('div'), { className: fm.doubt ? 'err' : 'okc',
+        textContent: `Khớp FMS: ${fm.order} (kiện ${fm.index}/${fm.total}, sau quét ${fm.lag.toFixed(1)}s)` + (fm.doubt ? ' – độ trễ bất thường, cần kiểm tra' : '') }));
       const acts = document.createElement('div'); acts.className = 'acts';
       const btn = (t, f) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = t; b.addEventListener('click', f); return b; };
       acts.append(btn('✓ Tính', () => decide(it.id, 'accept')), btn('✗ Bỏ', () => decide(it.id, 'reject')), btn('Xem lại', () => replay(it)));
@@ -493,9 +494,18 @@
       await new Promise((r) => { const iv = setInterval(() => { if (!st.busy) { clearInterval(iv); r(); } }, 300); });
       if (!st.scan) return;
     }
+    // Ứng viên: đỉnh màu kiện trong miệng bao (đo trên video thật tốt hơn chuyển động khi người ngồi sát bao).
+    // Nếu quá ít đỉnh màu (bao không xanh/khoanh sai) thì dùng lượt chuyển động.
+    const peaks = st.scan.colorPeaks || [];
+    const useColor = peaks.length >= 0.5 * inVid.length;
+    if (useColor && !st.scan.usingColor) {
+      st.scan.motionEvents = st.scan.events;
+      st.scan.events = peaks; st.scan.usingColor = true;
+      st.decisions = {}; st.counts = {}; st.thumbs = st.thumbs || {};
+    }
     const n = numbered();
     const counted = n.items.filter((i) => i.counted);
-    // Có FMS: mọi lượt (kể cả "người che", "cần kiểm tra") đều là ứng viên, trừ lượt người dùng đã bỏ.
+    // Mọi lượt (kể cả "người che", "cần kiểm tra") đều là ứng viên, trừ lượt người dùng đã bỏ.
     const candidates = n.items.filter((i) => i.decision !== 'reject');
     const manual = $('fms-offset').value.trim();
     let offset, offsetNote, expLag = 1;
@@ -507,8 +517,12 @@
       $('fms-offset').placeholder = `tự tính: ${offset >= 0 ? '+' : ''}${offset.toFixed(2)}`;
     }
     const matches = A.fms.alignScans(inVid.map((s) => ({ ...s, v: s.v + offset })), candidates, { expLag, maxDev: 4, skipCost: 4 });
+    // Độ trễ quét -> bỏ vào lệch hẳn so với thường lệ => ghép không chắc, cần người xem
+    const lagsOk = matches.filter((m) => m.event).map((m) => m.lagS).sort((x, y) => x - y);
+    const medLag = lagsOk.length ? lagsOk[lagsOk.length >> 1] : 0;
+    for (const m of matches) m.doubt = !!m.event && Math.abs(m.lagS - medLag) > 1.2;
     st.fmsMatch = {};
-    for (const m of matches) if (m.event) st.fmsMatch[m.event.id] = { order: m.order, index: m.index, total: p.total, lag: m.lagS };
+    for (const m of matches) if (m.event) st.fmsMatch[m.event.id] = { order: m.order, index: m.index, total: p.total, lag: m.lagS, doubt: m.doubt };
     const mine = matches.find((m) => m.order === p.order);
     const v = mine ? mine.v : raw.find((s) => s.order === p.order).v + offset;
     const ev = mine && mine.event;
@@ -519,18 +533,21 @@
     const closed = $('closed').checked;
     $('res-big').textContent = `${p.order}: Kiện thứ ${p.index}/${p.total} trong bao ${p.bag || '?'}`;
     $('res-meta').textContent = `Theo giờ quét FMS ${p.timeIso.replace('T', ' ')} · trong video ${fmt(videoS)}` +
-      (ev ? ` · bỏ vào bao sau quét ${mine.lagS.toFixed(1)}s` : ' · KHÔNG thấy lượt bỏ kiện rõ quanh giờ quét – ảnh là khung sau quét 2s, cần kiểm tra') +
+      (ev ? ` · bỏ vào bao sau quét ${mine.lagS.toFixed(1)}s` + (mine.doubt ? ' (độ trễ bất thường – CẦN KIỂM TRA)' : '') : ' · KHÔNG thấy lượt bỏ kiện rõ quanh giờ quét – ảnh là khung sau quét 2s, cần kiểm tra') +
       ` · lệch giờ camera ${offset >= 0 ? '+' : ''}${offset.toFixed(1)}s (${offsetNote})` + (closed ? '' : ' · bao chưa chốt');
     msg('mark-msg', 'Đang tạo ảnh bằng chứng…');
     st.ev = await A.counter.evidence(video, st.roi, videoS, [
       `${p.order} · ${p.index}/${p.total} · bao ${p.bag || '?'}`,
       `${$('camera').value || ''} ${fmt(videoS)} quét ${p.timeIso.slice(11)}`.trim(),
     ]);
-    st.fmsResult = { pos: p, event: ev, videoS, lag: ev ? mine.lagS : null, offset, offsetNote };
+    st.fmsResult = { pos: p, event: ev && !mine.doubt ? ev : null, doubtEvent: ev && mine.doubt ? ev : null, videoS, lag: ev ? mine.lagS : null, offset, offsetNote };
     if (!st.target) st.target = { id: 'scan_' + p.order };
     $('res-img').src = st.ev.marked; $('result').hidden = false;
     const matched = matches.filter((m) => m.event).length;
-    msg('mark-msg', `Ghép được ${matched}/${matches.length} lần quét của bao với lượt bỏ kiện trong video.`, matched ? 'okc' : 'err');
+    const doubts = matches.filter((m) => m.doubt).length;
+    msg('mark-msg', `Ghép được ${matched}/${matches.length} lần quét của bao với lượt bỏ kiện trong video` +
+      (useColor ? ' (theo màu kiện)' : ' (theo chuyển động)') + (doubts ? `; ${doubts} lượt độ trễ bất thường cần kiểm tra.` : '.'), matched ? 'okc' : 'err');
+    st.lastMatches = matches;
   }
 
   // ---------- lưu ----------

@@ -1,18 +1,18 @@
 // Quét video trong vùng khoanh để tìm lượt bỏ kiện, và lấy ảnh bằng chứng. Chạy trong trình duyệt.
 import { seek } from './video.mjs';
-import { boxBlur, changedFraction, detectEvents, refineEvents } from './core/motion.mjs';
+import { boxBlur, changedFraction, detectEvents, refineEvents, parcelFraction, detectColorPeaks } from './core/motion.mjs';
 
 const MAX_W = 160; // thu nhỏ vùng khoanh để quét nhanh
 
-function grayOf(ctx, w, h) {
-  const d = ctx.getImageData(0, 0, w, h).data;
+function grayOf(ctx, w, h, d = ctx.getImageData(0, 0, w, h).data) {
   const g = new Uint8Array(w * h);
   for (let i = 0, j = 0; j < g.length; i += 4, j++) g[j] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
   return { w, h, data: g };
 }
 
 /**
- * roi: {x,y,w,h} pixel trên khung gốc. Trả {times, act, events}.
+ * roi: {x,y,w,h} pixel trên khung gốc. Trả {times, act, parcel, events, colorPeaks}.
+ * act = chuyển động; parcel = tỷ lệ điểm màu kiện (sáng, không xanh) trong miệng bao.
  * signal: AbortSignal để hủy. onProgress(doneS, totalS).
  */
 export async function scanRange(video, roi, { startS = 0, endS = video.duration, fps = 12.5, onProgress, signal, opts } = {}) {
@@ -21,7 +21,7 @@ export async function scanRange(video, roi, { startS = 0, endS = video.duration,
   const cv = document.createElement('canvas');
   cv.width = w; cv.height = h;
   const ctx = cv.getContext('2d', { willReadFrequently: true });
-  const times = [], act = [], grays = [];
+  const times = [], act = [], grays = [], parcel = [];
   let prev = null;
   const dt = 1 / fps;
   for (let t = startS; t <= endS; t += dt) {
@@ -29,7 +29,9 @@ export async function scanRange(video, roi, { startS = 0, endS = video.duration,
     await seek(video, Math.min(t, video.duration - 0.001), 5000, { waitFrame: false });
     const mt = t;
     ctx.drawImage(video, roi.x, roi.y, roi.w, roi.h, 0, 0, w, h);
-    const g = boxBlur(grayOf(ctx, w, h));
+    const rgba = ctx.getImageData(0, 0, w, h).data;
+    const g = boxBlur(grayOf(ctx, w, h, rgba));
+    parcel.push(parcelFraction(rgba));
     times.push(mt);
     grays.push(g);
     act.push(prev ? changedFraction(prev, g) : 0);
@@ -38,7 +40,7 @@ export async function scanRange(video, roi, { startS = 0, endS = video.duration,
   }
   onProgress?.(endS - startS, endS - startS);
   const events = refineEvents(detectEvents(times, act, opts), grays, opts);
-  return { times, act, events };
+  return { times, act, parcel, events, colorPeaks: detectColorPeaks(times, parcel) };
 }
 
 /** Vùng ngữ cảnh quanh vùng khoanh (rộng thêm 60%), kẹp trong khung hình. */

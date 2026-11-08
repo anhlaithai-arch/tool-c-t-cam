@@ -55,3 +55,20 @@ test('changedFraction & blur', () => {
   assert.equal(changedFraction(a, b), 0.5);
   assert.equal(boxBlur(a).data.length, 4);
 });
+
+import { parcelFraction, detectColorPeaks } from '../../browser/core/motion.mjs';
+
+test('parcelFraction: green bag interior vs white parcel vs dark sleeve', () => {
+  const px = (r, g, b, n) => Array.from({ length: n }, () => [r, g, b, 255]).flat();
+  const green = new Uint8ClampedArray(px(40, 120, 60, 10));
+  const mixed = new Uint8ClampedArray([...px(40, 120, 60, 6), ...px(230, 230, 225, 3), ...px(30, 20, 25, 1)]);
+  assert.equal(parcelFraction(green), 0);
+  assert.ok(Math.abs(parcelFraction(mixed) - 0.3) < 1e-9);
+});
+
+test('detectColorPeaks finds short spikes over slow baseline, merges close ones', () => {
+  const times = [], sig = [];
+  for (let i = 0; i < 250; i++) { const t = i * 0.08; times.push(t); sig.push(0.25 + 0.01 * Math.sin(t) + ([2.96, 3.04, 6, 9.52].some((p) => Math.abs(t - p) < 0.01) ? 0.2 : 0)); }
+  const p = detectColorPeaks(times, sig);
+  assert.deepEqual(p.map((e) => Math.round(e.peakS * 10) / 10), [3, 6, 9.5]);
+});
