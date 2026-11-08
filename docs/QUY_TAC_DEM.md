@@ -78,3 +78,22 @@ Sau đó tự chọn tín hiệu: **màu kiện** (kiện sáng, chính xác th�
 - Đồng hồ camera chiều tối: chữ số chuyển sang **màu đen**, đè lên giấy dán tường → dò lưới ký tự viết lại (nét sáng hoặc tối,
   tìm đồng thời dòng chữ/cỡ chữ, bước ký tự đo bằng tự tương quan); chỉ đọc bắt buộc phần giờ:phút:giây, ngày lấy theo nhãn;
   học mẫu 25 giây chỉ từ phần giờ. Kết quả: đồng bộ ±0,02 s ở cả hai video.
+
+## Tự lấy dữ liệu FMS (2026-11-09)
+
+Người dùng chỉ cần bắn mã đơn trên trang Đếm (mở bằng link webapp) – tool tự:
+1. Gọi `GET /api/fleet_order/order/detail/tracking_info?shipment_id=<mã>` (cookie `spx_uid`/`spx_uk` đọc từ
+   spreadsheet "Phân quyền" `1eKffcHM…`, tab gid 845565709, ô **G1 = uid, G2 = uk**).
+2. Trải phẳng `tracking_list` (cả `children`), lấy **dòng trạng thái cuối cùng tại hub đã chọn có `[TO…]`**
+   (vd "Parcel [TO20261104FW96R] added into LH Task…") → mã TO. Giờ quét của đơn = "Parcel packing into TO [TO]" tại hub
+   (dự phòng "packed into TO"). Hub để trống → TO cuối cùng của hành trình (hub tự điền lại cho lần sau).
+3. Gọi `GET /api/in-station/general_to/outbound/order/search?to_number=<TO>&pageno=…&count=100` (lật trang) → mã các đơn trong TO.
+   Nếu danh sách không có giờ quét → tra `tracking_info` từng đơn (theo lô 10, `fetchAll`) lấy giờ "packing into TO" tại hub.
+4. Đưa vào bảng FMS như file TO → thứ tự N/T, AI tự tìm bao, ghép video như cũ.
+
+Lưu ý:
+- Webapp chạy dưới tài khoản người deploy → **mọi người dùng webapp dùng chung cookie đó**; chỉ người có khóa nhóm mới gọi được.
+  Cookie hết hạn → FMS trả 401/403, tool báo "cập nhật G1/G2".
+- Tên trường của API danh sách TO chưa được xác nhận: tool tự dò (`shipment_id`, `scan_time`, `ctime`…) và hiện danh sách
+  trường nhận được để chỉnh nếu cần.
+- Phần tách dòng trạng thái đã kiểm thử bằng dữ liệu theo JSON mẫu (`tests/browser/gas_fms.test.mjs`); **chưa gọi thử API thật**.

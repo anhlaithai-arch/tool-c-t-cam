@@ -214,6 +214,173 @@ function uiTrainingStats(viewKey) {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// Tự lấy dữ liệu FMS (SPX) bằng cookie trong sheet "🔐Cookies🔑" (G1 = spx_uid, G2 = spx_uk) của spreadsheet kết quả
+// (hoặc spreadsheet FMS_COOKIE_SHEET_ID). Webapp chạy dưới tài khoản người deploy -> mọi người dùng chung cookie đó.
+// ---------------------------------------------------------------------------
+var FMS_BASE = 'https://spx.shopee.vn';
+var FMS_TZ = 'Asia/Ho_Chi_Minh';
+
+// Nơi để cookie (người dùng chỉ định 2026-11-09): spreadsheet "Phân quyền", tab gid 845565709, G1 = spx_uid, G2 = spx_uk.
+// Ghi đè được bằng Script Properties FMS_COOKIE_SHEET_ID / FMS_COOKIE_GID.
+var DEFAULT_FMS_COOKIE_SHEET_ID = '1eKffcHMQlS_YXPiAOXeDdH1tlSqMCgdPB1GDCQYMGSE';
+var DEFAULT_FMS_COOKIE_GID = 845565709;
+
+function fmsCookie_() {
+  var ss = SpreadsheetApp.openById(prop_('FMS_COOKIE_SHEET_ID') || DEFAULT_FMS_COOKIE_SHEET_ID);
+  var gid = Number(prop_('FMS_COOKIE_GID') || DEFAULT_FMS_COOKIE_GID);
+  var sh = ss.getSheets().filter(function (x) { return x.getSheetId() === gid; })[0] ||
+    ss.getSheetByName('Phân quyền') || ss.getSheetByName('🔐Cookies🔑');
+  if (!sh) throw new Error('Không thấy tab chứa cookie (gid ' + gid + ' / "Phân quyền")');
+  var uid = String(sh.getRange('G1').getValue() || '').trim(), uk = String(sh.getRange('G2').getValue() || '').trim();
+  if (!uid || !uk) throw new Error('Tab "' + sh.getName() + '" thiếu G1 (spx_uid) hoặc G2 (spx_uk)');
+  return 'spx_uid=' + uid + '; spx_uk=' + uk + '; spx_st=1; spx_cid=VN';
+}
+
+function fmsRequest_(path, cookie) {
+  return { url: FMS_BASE + path, headers: { Cookie: cookie, Accept: 'application/json' }, muteHttpExceptions: true };
+}
+
+function fmsParse_(res, what) {
+  var code = res.getResponseCode();
+  if (code === 401 || code === 403) throw new Error('FMS từ chối (' + code + ') – cookie hết hạn? Cập nhật G1/G2 tab "Phân quyền".');
+  if (code !== 200) throw new Error('FMS lỗi HTTP ' + code + ' khi ' + what);
+  var j = JSON.parse(res.getContentText());
+  if (j.retcode !== 0 && j.retcode !== undefined) throw new Error('FMS báo lỗi khi ' + what + ': ' + (j.message || j.retcode));
+  return j.data;
+}
+
+function fmsFetch_(path, what, cookie) {
+  var last;
+  for (var attempt = 1; attempt <= 3; attempt++) {
+    try { return fmsParse_(UrlFetchApp.fetch(FMS_BASE + path, fmsRequest_(path, cookie)), what); }
+    catch (e) { last = e; if (/từ chối/.test(String(e.message))) throw e; Utilities.sleep(500 * attempt); }
+  }
+  throw last;
+}
+
+/** Trải phẳng tracking_list (cả children), sắp theo thời gian. */
+function fmsFlatten_(list) {
+  var out = [];
+  (function walk(arr) {
+    (arr || []).forEach(function (e) {
+      if (e && e.timestamp && e.status !== -1) out.push({ ts: Number(e.timestamp), status: e.status, station: String(e.station_name || ''), message: String(e.message || '') });
+      if (e && e.children && e.children.length) walk(e.children);
+    });
+  })(list);
+  out.sort(function (a, b) { return a.ts - b.ts; });
+  return out;
+}
+
+function fmsLocalIso_(ts) {
+  return Utilities.formatDate(new Date(ts * 1000), FMS_TZ, "yyyy-MM-dd'T'HH:mm:ss");
+}
+
+/**
+ * TO của đơn tại một hub: dòng trạng thái CUỐI CÙNG tại hub đó có "[TO...]" (vd "Parcel [TO...] added into LH Task").
+ * Giờ quét = thời điểm "Parcel packing into TO [TO]" tại hub (dự phòng: "packed into TO").
+ * station rỗng -> lấy hub của dòng có [TO...] cuối cùng trong toàn bộ hành trình.
+ */
+function fmsToAtStation_(events, station) {
+  var st = String(station || '').trim().toLowerCase();
+  var withTo = events.filter(function (e) { return /\[(TO\w+)\]/.test(e.message) && (!st || e.station.toLowerCase() === st); });
+  if (!withTo.length) return null;
+  var last = withTo[withTo.length - 1];
+  var to = /\[(TO\w+)\]/.exec(last.message)[1];
+  var at = last.station;
+  var packing = events.filter(function (e) { return e.station === at && e.message.indexOf('packing into TO [' + to + ']') >= 0; });
+  var packed = events.filter(function (e) { return e.station === at && e.message.indexOf('packed into TO [' + to + ']') >= 0; });
+  var scan = packing.length ? packing[packing.length - 1] : (packed.length ? packed[packed.length - 1] : null);
+  return { to: to, station: at, lastMessage: last.message, lastTs: last.ts, scanTs: scan ? scan.ts : null,
+    scanSource: packing.length ? 'packing into TO' : (packed.length ? 'packed into TO' : '') };
+}
+
+function fmsStations_(events) {
+  var seen = {}, out = [];
+  events.forEach(function (e) { if (e.station && !seen[e.station]) { seen[e.station] = 1; out.push(e.station); } });
+  return out;
+}
+
+/** Tra một đơn: TO tại hub + giờ quét. */
+function fmsLookupOrder_(code, station, cookie) {
+  var d = fmsFetch_('/api/fleet_order/order/detail/tracking_info?shipment_id=' + encodeURIComponent(code), 'tra đơn ' + code, cookie);
+  var ev = fmsFlatten_(d && d.tracking_list);
+  var r = fmsToAtStation_(ev, station);
+  return { order: code, found: !!r, to: r ? r.to : null, station: r ? r.station : null,
+    scanTime: r && r.scanTs ? fmsLocalIso_(r.scanTs) : null, scanSource: r ? r.scanSource : '',
+    lastMessage: r ? r.lastMessage : '', stations: fmsStations_(ev) };
+}
+
+/** Lấy mã đơn và giờ quét (nếu có) từ một dòng của API danh sách TO – dò tên trường. */
+function fmsPickOrder_(it) {
+  var idKeys = ['shipment_id', 'lm_tracking_number', 'tracking_number', 'order_id', 'order_sn'];
+  var tKeys = ['scan_time', 'packed_time', 'packing_time', 'operate_time', 'operation_time', 'ctime', 'create_time', 'add_time', 'mtime'];
+  var order = '', time = null, timeKey = '';
+  for (var i = 0; i < idKeys.length; i++) if (it[idKeys[i]]) { order = String(it[idKeys[i]]).trim(); break; }
+  for (var k = 0; k < tKeys.length; k++) {
+    var v = it[tKeys[k]];
+    if (v === undefined || v === null || v === '' || v === 0) continue;
+    if (typeof v === 'number' || /^\d{10,13}$/.test(String(v))) { var n = Number(v); time = fmsLocalIso_(n > 1e12 ? Math.floor(n / 1000) : n); }
+    else time = String(v).replace(' ', 'T').slice(0, 19);
+    timeKey = tKeys[k];
+    break;
+  }
+  return { order: order, time: time, timeKey: timeKey };
+}
+
+/** Lấy danh sách mã đơn trong TO (lật trang). Trả {items: [{order, time|null}], fields}. */
+function fmsToOrders_(to, cookie) {
+  var items = [], fields = [], count = 100;
+  for (var page = 1; page <= 50; page++) {
+    var d = fmsFetch_('/api/in-station/general_to/outbound/order/search?to_number=' + encodeURIComponent(to) + '&pageno=' + page + '&count=' + count, 'lấy danh sách TO ' + to, cookie);
+    var list = (d && (d.list || d.order_list)) || [];
+    if (!list.length) break;
+    if (!fields.length) fields = Object.keys(list[0]);
+    list.forEach(function (it) { items.push(fmsPickOrder_(it)); });
+    var total = d.total || d.total_count;
+    if (list.length < count || (total && items.length >= total)) break;
+  }
+  return { items: items.filter(function (x) { return x.order; }), fields: fields };
+}
+
+/** Giao diện: bắn mã đơn -> TO tại hub + danh sách mọi đơn trong TO kèm giờ quét (bảng như file TO). */
+function uiFmsFetch(viewKey, orderCode, station) {
+  checkViewKey_(viewKey);
+  var code = String(orderCode || '').trim().toUpperCase();
+  if (!code) throw new Error('Thiếu mã đơn');
+  var cookie = fmsCookie_();
+  var st = String(station || prop_('FMS_STATION') || '').trim();
+  var me = fmsLookupOrder_(code, st, cookie);
+  if (!me.found) return { ok: false, order: code, stations: me.stations, message: 'Không thấy dòng có [TO...] tại hub "' + st + '". Các hub của đơn: ' + me.stations.join(', ') };
+  var list = fmsToOrders_(me.to, cookie);
+  var source = 'danh sách TO';
+  var need = list.items.filter(function (x) { return !x.time; });
+  if (need.length) {
+    // danh sách TO không có giờ -> tra từng đơn (song song theo lô 10)
+    source = 'tracking từng đơn';
+    for (var i = 0; i < need.length; i += 10) {
+      var batch = need.slice(i, i + 10);
+      var res = UrlFetchApp.fetchAll(batch.map(function (x) {
+        return fmsRequest_('/api/fleet_order/order/detail/tracking_info?shipment_id=' + encodeURIComponent(x.order), cookie);
+      }));
+      res.forEach(function (r, j) {
+        try {
+          var ev = fmsFlatten_((fmsParse_(r, 'tra đơn ' + batch[j].order) || {}).tracking_list);
+          var hit = ev.filter(function (e) { return e.station === me.station && e.message.indexOf('packing into TO [' + me.to + ']') >= 0; });
+          if (!hit.length) hit = ev.filter(function (e) { return e.station === me.station && e.message.indexOf('packed into TO [' + me.to + ']') >= 0; });
+          if (hit.length) batch[j].time = fmsLocalIso_(hit[hit.length - 1].ts);
+        } catch (e) { batch[j].error = String(e.message || e); }
+      });
+      if (i + 10 < need.length) Utilities.sleep(200);
+    }
+  }
+  var rows = list.items.map(function (x) { return [x.order, x.time || '', me.to]; });
+  if (!rows.some(function (r) { return r[0] === code; })) rows.push([code, me.scanTime || '', me.to]);
+  return { ok: true, order: code, to: me.to, station: me.station, scanTime: me.scanTime, lastMessage: me.lastMessage,
+    header: ['Mã đơn', 'Thời gian quét', 'Mã bao'], rows: rows, total: rows.length,
+    missingTime: rows.filter(function (r) { return !r[1]; }).length, source: source, listFields: list.fields };
+}
+
 function uiPackingTime(viewKey, orderCode) {
   checkViewKey_(viewKey);
   return { orderCode: String(orderCode || '').trim(), packingTime: lookupPackingTime_(orderCode) };

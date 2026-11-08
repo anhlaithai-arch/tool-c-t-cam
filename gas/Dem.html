@@ -110,6 +110,11 @@
 
     <div class="panel">
       <h2>Dữ liệu quét FMS</h2>
+      <div class="row">
+        <div><label for="fms-station">Hub (đúng tên trên FMS)</label><input id="fms-station" type="text" placeholder="vd 22-BNH Thuan Thanh 2 Hub"></div>
+        <button id="fms-api" type="button" class="primary">Lấy từ FMS theo mã đơn</button>
+      </div>
+      <p class="muted">Bắn mã đơn ở mục 2 rồi bấm nút trên: tool tự tìm TO của đơn tại hub, lấy danh sách mọi đơn trong TO và giờ quét. Hoặc nạp thủ công:</p>
       <p class="muted">Dán bảng xuất từ FMS (Excel: chọn vùng có hàng tiêu đề → Ctrl+C → dán vào đây), chọn file CSV,
         hoặc lấy từ sheet "FMS" trên webapp. Cần 3 cột: mã đơn, giờ quét, mã bao.</p>
       <textarea id="fms-text" rows="4" style="width:100%;font:13px monospace" placeholder="Mã vận đơn	Thời gian quét	Mã bao"></textarea>
@@ -213,7 +218,7 @@
   const inGas = () => !!(window.google && google.script && google.script.run);
   function rpc(method, ...args) {
     return new Promise((res, rej) => {
-      if (!inGas()) return rej(new Error('Chỉ lưu được khi mở trang bằng link webapp.'));
+      if (!inGas()) return rej(new Error('Chức năng này chỉ chạy khi mở trang bằng link webapp.'));
       google.script.run.withSuccessHandler(res).withFailureHandler(rej)[method](...args);
     });
   }
@@ -439,6 +444,31 @@
     msg('mark-msg', closed ? '' : '* phiên chưa chốt: tổng có thể còn thay đổi.');
   }
 
+  // ---------- tự lấy dữ liệu FMS ----------
+  const STATION_STORE = 'dem-kien.fms-station';
+  $('fms-station').value = load(STATION_STORE);
+  $('fms-api').addEventListener('click', () => fetchFms());
+  async function fetchFms() {
+    const order = $('order').value.trim();
+    if (!order) { msg('fms-msg', 'Bắn mã đơn trước.', 'err'); return false; }
+    const key = $('key').value.trim(); store(KEY_STORE, key);
+    const station = $('fms-station').value.trim(); store(STATION_STORE, station);
+    $('fms-api').disabled = true;
+    try {
+      msg('fms-msg', `Đang tra ${order} trên FMS…`);
+      const r = await rpc('uiFmsFetch', key, order, station);
+      if (!r.ok) { msg('fms-msg', r.message, 'err'); return false; }
+      if (!station && r.station) { $('fms-station').value = r.station; store(STATION_STORE, r.station); }
+      setFms([r.header, ...r.rows], `FMS ${r.to}`);
+      const warn = r.missingTime ? `\nThiếu giờ quét ${r.missingTime}/${r.total} đơn.` : '';
+      msg('fms-msg', `Đơn ${r.order} thuộc ${r.to} tại ${r.station} (quét ${String(r.scanTime || '?').replace('T', ' ')}). ` +
+        `Lấy ${r.total} đơn của TO (giờ theo ${r.source}).` + warn +
+        (r.listFields && r.listFields.length ? `\nTrường API danh sách TO: ${r.listFields.slice(0, 12).join(', ')}` : ''), r.missingTime ? 'err' : 'okc');
+      return true;
+    } catch (e) { msg('fms-msg', 'Không lấy được từ FMS: ' + (e && e.message || e), 'err'); return false; }
+    finally { $('fms-api').disabled = false; }
+  }
+
   // ---------- FMS ----------
   function setFms(table, source) { setFmsResult(A.fms.loadScans(table), source); }
   function setFmsResult(r, source) {
@@ -470,7 +500,12 @@
     try { msg('fms-msg', 'Đang lấy từ webapp…'); const r = await rpc('uiFmsBag', key, order); setFms([r.header, ...r.rows], 'Sheet FMS'); }
     catch (e) { msg('fms-msg', 'Không lấy được: ' + (e && e.message || e), 'err'); }
   });
-  $('order').addEventListener('keydown', (e) => { if (e.key === 'Enter') { showFmsPos(); $('order').select(); } });
+  $('order').addEventListener('keydown', async (e) => {
+    if (e.key !== 'Enter') return;
+    const has = st.fms && A.fms.orderPosition(st.fms.scans, $('order').value);
+    if (!has && inGas()) await fetchFms();
+    showFmsPos(); $('order').select();
+  });
   function fmsPos() { return st.fms && $('order').value.trim() ? A.fms.orderPosition(st.fms.scans, $('order').value) : null; }
   function showFmsPos() {
     const box = $('fms-pos'); box.replaceChildren();
