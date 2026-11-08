@@ -216,6 +216,10 @@ function fmsCookie_() {
   var sh = ss.getSheets().filter(function (x) { return x.getSheetId() === gid; })[0] ||
     ss.getSheetByName('Phân quyền') || ss.getSheetByName('🔐Cookies🔑');
   if (!sh) throw new Error('Không thấy tab chứa cookie (gid ' + gid + ' / "Phân quyền")');
+  // G3 (tùy chọn): chuỗi Cookie ĐẦY ĐỦ copy từ trình duyệt đang đăng nhập FMS (DevTools > Network > Request Headers > cookie).
+  // Một số API (tracking_info, danh sách TO) cần thêm cookie ngoài spx_uid/spx_uk -> 403 nếu thiếu.
+  var full = String(sh.getRange('G3').getValue() || '').trim();
+  if (full && full.indexOf('=') > 0) return full.replace(/^cookie:\s*/i, '');
   var uid = String(sh.getRange('G1').getValue() || '').trim(), uk = String(sh.getRange('G2').getValue() || '').trim();
   if (!uid || !uk) throw new Error('Tab "' + sh.getName() + '" thiếu G1 (spx_uid) hoặc G2 (spx_uk)');
   return 'spx_uid=' + uid + '; spx_uk=' + uk + '; spx_st=1; spx_cid=VN';
@@ -309,7 +313,8 @@ function fmsLookupOrder_(code, station, cookie) {
 /** Lấy mã đơn và giờ quét (nếu có) từ một dòng của API danh sách TO – dò tên trường. */
 function fmsPickOrder_(it) {
   var idKeys = ['shipment_id', 'lm_tracking_number', 'tracking_number', 'order_id', 'order_sn'];
-  var tKeys = ['scan_time', 'packed_time', 'packing_time', 'operate_time', 'operation_time', 'ctime', 'create_time', 'add_time', 'mtime'];
+  // ctime = giờ quét vào TO (đã đối chiếu: trùng cột Scan Time của file TO xuất từ FMS). Không dùng mtime/receive_time.
+  var tKeys = ['ctime', 'scan_time', 'packed_time', 'packing_time', 'operate_time', 'operation_time', 'create_time', 'add_time'];
   var order = '', time = null, timeKey = '';
   for (var i = 0; i < idKeys.length; i++) if (it[idKeys[i]]) { order = String(it[idKeys[i]]).trim(); break; }
   for (var k = 0; k < tKeys.length; k++) {
