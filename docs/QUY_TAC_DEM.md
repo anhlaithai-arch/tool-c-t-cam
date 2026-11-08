@@ -97,3 +97,14 @@ Lưu ý:
 - Tên trường của API danh sách TO chưa được xác nhận: tool tự dò (`shipment_id`, `scan_time`, `ctime`…) và hiện danh sách
   trường nhận được để chỉnh nếu cần.
 - Phần tách dòng trạng thái đã kiểm thử bằng dữ liệu theo JSON mẫu (`tests/browser/gas_fms.test.mjs`); **chưa gọi thử API thật**.
+
+### Cập nhật 2026-11-09: FMS chặn yêu cầu từ máy chủ → dùng nút "Lấy TO" (bookmarklet)
+
+- Gọi `tracking_info` / danh sách TO từ GAS bị FMS trả **403** `{"is_login":true,"action_type":2,"error":90309999}` dù có cookie đầy đủ
+  (G3): lớp chống bot chỉ nhận yêu cầu từ trình duyệt thật đang mở FMS. Không tìm cách vượt lớp này.
+- Thử trong Chrome đang đăng nhập FMS: cả hai API chạy tốt. Đơn SPXVN06390366470B @ 22-BNH Thuan Thanh 2 Hub → **TO20261107JIZEQ, 28 đơn**,
+  `ctime` của danh sách TO **trùng Scan Time** file TO xuất từ FMS.
+- Vì vậy cách chính là **bookmarklet** (`browser/fms-bookmarklet.js`, trang Đếm có nút vàng "📋 Lấy TO" để kéo lên thanh dấu trang):
+  bấm trên trang FMS → nhập mã đơn + hub → tự lấy TO (dòng [TO] cuối tại hub) + danh sách đơn (ctime) → copy bảng TSV →
+  dán vào ô dữ liệu FMS trên trang Đếm (tự đọc khi dán).
+- Phần lấy qua máy chủ (`uiFmsStations`/`uiFmsFetch`, cookie G1/G2/G3) giữ lại trong mục thu gọn, không tự gọi khi bắn mã.

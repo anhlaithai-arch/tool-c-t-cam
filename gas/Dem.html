@@ -110,11 +110,27 @@
 
     <div class="panel">
       <h2>Dữ liệu quét FMS</h2>
-      <div class="row">
-        <div><label for="fms-station">Station</label><select id="fms-station" disabled><option value="">— Bắn mã đơn để tải station —</option></select></div>
-        <button id="fms-api" type="button" class="primary" disabled>Lấy TO của station</button>
+      <div style="border:1px solid var(--line);border-radius:8px;padding:10px;background:#f7faff">
+        <b>Cách nhanh: nút "Lấy TO" trên thanh dấu trang Chrome</b>
+        <ol class="muted" style="margin:6px 0 6px 18px;padding:0">
+          <li>Lần đầu: hiện thanh dấu trang (Ctrl+Shift+B), <b>kéo</b> nút vàng bên dưới thả lên thanh đó.</li>
+          <li>Mở trang FMS (spx.shopee.vn, đang đăng nhập) → bấm nút "Lấy TO" trên thanh dấu trang → nhập mã đơn và hub.</li>
+          <li>Nút tự tìm TO của đơn tại hub, lấy đủ đơn trong TO kèm giờ quét và <b>copy</b> sẵn → quay lại đây, bấm vào ô bên dưới và <b>Ctrl+V</b>.</li>
+        </ol>
+        <div class="row" style="align-items:center">
+          <a id="fms-bm" href="#" style="display:inline-block;padding:6px 12px;border-radius:6px;background:#ffd400;color:#000;font-weight:700;text-decoration:none;flex:0 0 auto">📋 Lấy TO</a>
+          <button id="fms-bm-copy" type="button" style="flex:0 0 auto">Copy mã nút (nếu kéo không được)</button>
+        </div>
+        <p class="muted" style="margin:6px 0 0">Nút chạy trong chính trình duyệt đang đăng nhập FMS (FMS chặn mọi yêu cầu từ máy chủ Google), không gửi cookie đi đâu.</p>
       </div>
-      <p class="muted">Bắn mã đơn ở mục 2: tool tự tải các station đơn đã đi qua (kèm mã TO). Chọn station nào thì lấy TO của station đó, cùng mọi đơn trong TO và giờ quét. Hoặc nạp thủ công:</p>
+      <details style="margin-top:8px">
+        <summary class="muted">Lấy qua máy chủ webapp (hiện bị FMS chặn – chỉ để thử)</summary>
+        <div class="row">
+          <div><label for="fms-station">Station</label><select id="fms-station" disabled><option value="">— Bắn mã đơn để tải station —</option></select></div>
+          <button id="fms-api" type="button" class="primary" disabled>Lấy TO của station</button>
+        </div>
+        <button id="fms-load-stations" type="button">Tải station của mã đơn</button>
+      </details>
       <p class="muted">Dán bảng xuất từ FMS (Excel: chọn vùng có hàng tiêu đề → Ctrl+C → dán vào đây), chọn file CSV,
         hoặc lấy từ sheet "FMS" trên webapp. Cần 3 cột: mã đơn, giờ quét, mã bao.</p>
       <textarea id="fms-text" rows="4" style="width:100%;font:13px monospace" placeholder="Mã vận đơn	Thời gian quét	Mã bao"></textarea>
@@ -508,6 +524,21 @@
     showFmsPos(); refreshButtons();
   }
   $('fms-load').addEventListener('click', () => setFms(A.fms.parseTable($('fms-text').value), 'Bảng đã dán'));
+  // Dán bảng (từ nút "Lấy TO" hoặc Excel) -> tự đọc ngay
+  $('fms-text').addEventListener('paste', () => setTimeout(() => {
+    setFms(A.fms.parseTable($('fms-text').value), 'Bảng đã dán');
+    if (!$('order').value.trim() && st.fms && st.fms.scans.length === 1) $('order').value = st.fms.scans[0].order;
+    showFmsPos();
+  }, 0));
+  // Nút bookmarklet: mã lấy từ bundle (browser/fms-bookmarklet.js)
+  const bmHref = 'javascript:' + encodeURIComponent('(' + A.bookmarklet.fmsBookmarklet.toString() + ')()');
+  $('fms-bm').href = bmHref;
+  $('fms-bm').addEventListener('click', (e) => { e.preventDefault(); msg('fms-msg', 'Kéo nút vàng lên thanh dấu trang (đừng bấm ở đây), rồi bấm nó khi đang ở trang FMS.', 'err'); });
+  $('fms-bm-copy').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(bmHref); msg('fms-msg', 'Đã copy mã nút. Tạo dấu trang mới (Ctrl+D), sửa URL = dán mã vừa copy, tên "Lấy TO".', 'okc'); }
+    catch (_) { $('fms-text').value = bmHref; msg('fms-msg', 'Trình duyệt chặn copy – mã nút đã đặt vào ô bên dưới, tự chọn và copy.', 'err'); }
+  });
+  $('fms-load-stations').addEventListener('click', () => loadStations());
   $('fms-file').addEventListener('change', async () => {
     const files = [...$('fms-file').files]; if (!files.length) return;
     msg('fms-msg', 'Đang đọc ' + files.length + ' file…');
@@ -530,7 +561,7 @@
   $('order').addEventListener('keydown', async (e) => {
     if (e.key !== 'Enter') return;
     const has = st.fms && A.fms.orderPosition(st.fms.scans, $('order').value);
-    if (!has && inGas()) await loadStations();
+    // FMS chặn yêu cầu từ máy chủ (chống bot) -> không tự gọi; dùng nút "Lấy TO" hoặc mở mục "Lấy qua máy chủ".
     showFmsPos(); $('order').select();
   });
   function fmsPos() { return st.fms && $('order').value.trim() ? A.fms.orderPosition(st.fms.scans, $('order').value) : null; }
