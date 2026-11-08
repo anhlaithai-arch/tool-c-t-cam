@@ -189,20 +189,23 @@ function uploadEvidence_(d) {
     if (!found) throw new Error('Chưa có kết quả ' + d.resultId + ', gửi submitResult trước');
     var folder = DriveApp.getFolderById(prop_('EVIDENCE_FOLDER_ID'));
     var rec = found.record;
-    // gửi lại cùng loại ảnh -> thay ảnh cũ, không tạo trùng
-    var keep = [];
-    (rec.evidence || []).forEach(function (ev) {
-      if (ev.kind === kind) {
-        try { DriveApp.getFileById(ev.fileId).setTrashed(true); } catch (e) { /* đã mất */ }
-      } else {
-        keep.push(ev);
-      }
-    });
+    // Gửi lại cùng loại ảnh -> thay ảnh cũ, không tạo trùng.
+    // Thứ tự an toàn: tạo ảnh mới -> ghi tham chiếu -> mới bỏ ảnh cũ (lỗi giữa chừng không mất bằng chứng).
     var file = folder.createFile(Utilities.newBlob(bytes, mime, name));
+    var old = [], keep = [];
+    (rec.evidence || []).forEach(function (ev) { (ev.kind === kind ? old : keep).push(ev); });
     keep.push({ kind: kind, fileId: file.getId() });
     rec.evidence = keep;
     rec.updatedAt = new Date().toISOString();
-    sh.getRange(found.row, 1, 1, RESULT_COLUMNS.length).setValues([toRow_(rec)]);
+    try {
+      sh.getRange(found.row, 1, 1, RESULT_COLUMNS.length).setValues([toRow_(rec)]);
+    } catch (e) {
+      try { file.setTrashed(true); } catch (e2) { /* bỏ qua */ }
+      throw e;
+    }
+    old.forEach(function (ev) {
+      try { DriveApp.getFileById(ev.fileId).setTrashed(true); } catch (e) { /* đã mất */ }
+    });
     return { ok: true, fileId: file.getId() };
   } finally {
     lock.releaseLock();
