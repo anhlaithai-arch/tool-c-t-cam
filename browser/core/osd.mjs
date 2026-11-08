@@ -240,3 +240,19 @@ export function readOsd(img, grid, templates, { minScore = 0.55, minMargin = 0.0
 export function cellChange(imgA, imgB, grid, k) {
   return 1 - ncc(cellVectorAuto(imgA, grid, k), cellVectorAuto(imgB, grid, k));
 }
+
+/**
+ * Điểm khớp trung bình (NCC, lấy cực trắng/đen tốt hơn) của một chuỗi giả định `text` trên ảnh,
+ * tính trên các ô chữ số từ fromIndex. Dùng để so "giờ dự đoán" với "giờ đọc tự do".
+ */
+export function scoreText(img, grid, templates, text, { fromIndex = 0 } = {}) {
+  let sum = 0, n = 0;
+  for (let k = fromIndex; k < text.length; k++) {
+    if (!isDigit(grid.label[k]) || !isDigit(text[k])) continue;
+    const t = templates.digits[text[k]];
+    if (!t) continue;
+    sum += Math.max(ncc(cellVector(img, grid, k, 'white'), t), ncc(cellVector(img, grid, k, 'black'), t));
+    n++;
+  }
+  return n ? sum / n : -1;
+}

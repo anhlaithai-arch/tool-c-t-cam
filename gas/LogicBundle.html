@@ -30,6 +30,7 @@ var CountingApp = (() => {
     motion: () => motion_exports,
     rhythm: () => rhythm_exports,
     sync: () => sync_exports,
+    trainset: () => trainset_exports,
     version: () => version,
     video: () => video_exports,
     xlsx: () => xlsx_exports
@@ -155,6 +156,7 @@ var CountingApp = (() => {
   __export(counter_exports, {
     contextBox: () => contextBox,
     evidence: () => evidence,
+    sampleFrames: () => sampleFrames,
     scanRange: () => scanRange,
     snapshot: () => snapshot
   });
@@ -518,6 +520,21 @@ var CountingApp = (() => {
     await seek(video, tS);
     return { full: toJpeg(full), marked: toJpeg(marked), crop: toJpeg(crop, 0.9) };
   }
+  async function sampleFrames(video, roi, tS, { offsets = [-0.4, 0, 0.4], maxW = 224, quality = 0.85 } = {}) {
+    const box = contextBox(roi, video.videoWidth, video.videoHeight);
+    const s = Math.min(1, maxW / box.w);
+    const c = document.createElement("canvas");
+    c.width = Math.round(box.w * s);
+    c.height = Math.round(box.h * s);
+    const ctx = c.getContext("2d");
+    const frames = [];
+    for (const o of offsets) {
+      await seek(video, Math.max(0, Math.min(video.duration - 0.05, tS + o)));
+      ctx.drawImage(video, box.x, box.y, box.w, box.h, 0, 0, c.width, c.height);
+      frames.push(c.toDataURL("image/jpeg", quality));
+    }
+    return { box, frames };
+  }
 
   // browser/clocksync.mjs
   var clocksync_exports = {};
@@ -873,6 +890,17 @@ var CountingApp = (() => {
   function cellChange(imgA, imgB, grid, k) {
     return 1 - ncc(cellVectorAuto(imgA, grid, k), cellVectorAuto(imgB, grid, k));
   }
+  function scoreText(img, grid, templates, text, { fromIndex = 0 } = {}) {
+    let sum = 0, n = 0;
+    for (let k = fromIndex; k < text.length; k++) {
+      if (!isDigit(grid.label[k]) || !isDigit(text[k])) continue;
+      const t = templates.digits[text[k]];
+      if (!t) continue;
+      sum += Math.max(ncc(cellVector(img, grid, k, "white"), t), ncc(cellVector(img, grid, k, "black"), t));
+      n++;
+    }
+    return n ? sum / n : -1;
+  }
 
   // browser/core/sync.mjs
   var sync_exports = {};
@@ -1052,7 +1080,7 @@ var CountingApp = (() => {
     if (bad.length > Math.floor(samples.length * 0.1)) {
       throw new Error(`Đồng hồ không khớp nhãn ở ${bad.length}/${samples.length} mẫu (vd đọc "${bad[0].got}", mong "${bad[0].want}"). Kiểm tra chữ đã nhập hoặc chọn khung khác.`);
     }
-    return { roi, grid, templates, layout, fromIndex };
+    return { roi, grid, templates, layout, fromIndex, anchorT: tick.tTick, anchorPrevT: tick.tPrev, anchorWall: layout.wall + 1 };
   }
   async function syncClock(video, clock, { stepS = 15, onProgress, signal } = {}) {
     const { roi, grid, templates, layout } = clock;
@@ -1061,11 +1089,20 @@ var CountingApp = (() => {
     const ts = [];
     for (let t = 0.2; t < dur - 0.3; t += stepS) ts.push(t);
     ts.push(Math.max(0, dur - 0.3));
+    const readPredicted = (img, t, rounding) => {
+      const r = readOsd(img, grid, templates, { fromIndex });
+      if (clock.anchorT == null) return r;
+      const pred = formatLike(layout, clock.anchorWall + rounding(t - clock.anchorT));
+      if (r.text === pred) return r;
+      const sp = scoreText(img, grid, templates, pred, { fromIndex });
+      const sr = scoreText(img, grid, templates, r.text, { fromIndex });
+      return sp >= sr - 0.06 && sp >= 0.45 ? { ...r, text: pred, ok: true, predicted: true } : r;
+    };
     const samples = [];
     for (let i = 0; i < ts.length; i++) {
       if (signal?.aborted) throw new DOMException("Đã hủy", "AbortError");
       const f = await frameAt(video, roi, ts[i]);
-      const r = readOsd(f.img, grid, templates, { fromIndex });
+      const r = readPredicted(f.img, f.t, Math.floor);
       const wall = r.ok ? parseClock(r.text, layout.order).wall : null;
       samples.push({ videoS: f.t, wall, text: r.text });
       onProgress?.(i + 1, ts.length);
@@ -1073,10 +1110,14 @@ var CountingApp = (() => {
     const secIdx = layout.groups.s.end - 1;
     return buildSync(samples, dur, {
       refine: async (group) => {
+        if (clock.anchorT != null && clock.anchorPrevT != null && group[0].videoS - 1 <= clock.anchorT && clock.anchorT <= group[group.length - 1].videoS + 1) {
+          const lo2 = clock.anchorWall - clock.anchorT, hi2 = clock.anchorWall - clock.anchorPrevT;
+          return { offset: (lo2 + hi2) / 2, uncertainty: (hi2 - lo2) / 2 };
+        }
         const mid = group[group.length >> 1];
         const tk = await findTick(video, roi, grid, secIdx, mid.videoS);
         if (!tk) return null;
-        const r = readOsd(tk.img, grid, templates, { fromIndex });
+        const r = readPredicted(tk.img, tk.tTick, Math.round);
         const wall = r.ok ? parseClock(r.text, layout.order).wall : null;
         if (wall === null) return null;
         const lo = wall - tk.tTick, hi = wall - tk.tPrev;
@@ -1595,6 +1636,61 @@ var CountingApp = (() => {
       h: Math.min(video.videoHeight, (reg.box.h + 2 * pad) * DOWN)
     };
     return { box, z: reg.zmax, offset: offs[reg.best], hits: hits[reg.best], n: scanV.length, heat: { zmap, nx, ny, step: STEP * DOWN, cell: CELL * DOWN } };
+  }
+
+  // browser/core/trainset.mjs
+  var trainset_exports = {};
+  __export(trainset_exports, {
+    FRAME_OFFSETS: () => FRAME_OFFSETS,
+    LABELS: () => LABELS,
+    buildSamples: () => buildSamples,
+    negativeTimes: () => negativeTimes,
+    sampleId: () => sampleId,
+    summarize: () => summarize
+  });
+  var LABELS = { bo_vao: "Đúng lúc bỏ kiện", sai: "Sai", khong_ro: "Không rõ", khong_kien: "Không có kiện" };
+  var FRAME_OFFSETS = [-0.4, 0, 0.4];
+  function sampleId({ bag, order, label, tS }) {
+    const key = label === "khong_kien" ? `NEG_${Math.round(tS * 10)}` : String(order || "").toUpperCase();
+    return `${String(bag || "NOBAG").toUpperCase()}_${key}`.replace(/[^A-Z0-9_]/gi, "_");
+  }
+  function buildSamples(matches, reviews, meta) {
+    const out = [];
+    for (const m of matches) {
+      const r = reviews[m.order];
+      if (!r || !r.label) continue;
+      const tS = r.tS ?? (m.event ? m.event.peakS : null);
+      if (tS == null) continue;
+      out.push({
+        id: sampleId({ bag: meta.bag, order: m.order, label: r.label, tS }),
+        label: r.label,
+        corrected: r.tS != null,
+        order: m.order,
+        index: m.index,
+        bag: meta.bag,
+        camera: meta.camera || "",
+        videoFile: meta.videoFile || "",
+        videoTimeS: Math.round(tS * 1e3) / 1e3,
+        scanVideoS: m.v != null ? Math.round(m.v * 1e3) / 1e3 : null,
+        roi: meta.roi,
+        signal: meta.signal || "",
+        offset: meta.offset ?? null
+      });
+    }
+    return out;
+  }
+  function negativeTimes(confirmedTimes, { minGapS = 2.4, maxN = 50 } = {}) {
+    const t = [...confirmedTimes].sort((a, b) => a - b);
+    const out = [];
+    for (let i = 1; i < t.length && out.length < maxN; i++) {
+      if (t[i] - t[i - 1] >= minGapS) out.push(Math.round((t[i] + t[i - 1]) / 2 * 1e3) / 1e3);
+    }
+    return out;
+  }
+  function summarize(samples) {
+    const c = { bo_vao: 0, sai: 0, khong_ro: 0, khong_kien: 0 };
+    for (const s of samples) c[s.label] = (c[s.label] || 0) + 1;
+    return { ...c, total: samples.length, usable: c.bo_vao + c.sai + c.khong_kien };
   }
 
   // browser/entry.mjs

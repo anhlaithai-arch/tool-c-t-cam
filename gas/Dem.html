@@ -152,6 +152,24 @@
     </div>
 
     <div class="panel">
+      <h2>5. Duyệt từng đơn &amp; tạo dữ liệu huấn luyện</h2>
+      <p class="muted">Sau khi "Đánh dấu theo FMS": xem dải 3 khung của từng đơn rồi bấm ✓ Đúng / ✗ Sai / ? Không rõ.
+        Khung lệch thì tua video tới đúng lúc kiện vào bao và bấm "Sửa = khung đang xem". Chỉ lưu ảnh nhỏ quanh miệng bao, không tải video.</p>
+      <div class="row">
+        <button id="train-build" type="button" disabled>Tạo danh sách duyệt</button>
+        <button id="train-allok" type="button" disabled>Đánh dấu tất cả chưa duyệt = Đúng</button>
+      </div>
+      <label><input id="train-neg" type="checkbox" checked> Kèm mẫu "không có kiện" (tự lấy giữa các lượt đã xác nhận)</label>
+      <div class="stats" id="train-stats"></div>
+      <ul id="train-list" style="list-style:none;padding:0;margin:0;display:grid;gap:6px;max-height:70vh;overflow:auto"></ul>
+      <div class="row" style="margin-top:8px">
+        <button id="train-save" type="button" class="primary" disabled>Lưu mẫu lên webapp</button>
+        <button id="train-dl" type="button" disabled>Tải file mẫu về máy</button>
+      </div>
+      <p id="train-msg" class="msg"></p>
+    </div>
+
+    <div class="panel">
       <h2>4. Duyệt các lượt bỏ kiện</h2>
       <div class="stats" id="stats"><span class="muted">Chưa đếm.</span></div>
       <p class="muted">AI chỉ đề xuất. Lượt "nghi người che" và "cần kiểm tra" mặc định KHÔNG tính – xem lại và bấm ✓ nếu có kiện. Bấm ảnh để xem lại đoạn đó.</p>
@@ -209,6 +227,7 @@
     $('mark').disabled = st.busy || !st.scan;
     $('mark-fms').disabled = st.busy || !st.h || !st.fms || !st.fms.scans.length;
     $('find-bag').disabled = st.busy || !st.h || !st.fms || !st.fms.scans.length;
+    try { trainBtns(); } catch (_) { /* chưa khai báo lúc khởi tạo */ }
     $('clock-run').disabled = st.busy || !st.h;
   }
 
@@ -592,7 +611,145 @@
     msg('mark-msg', `Ghép được ${matched}/${matches.length} lần quét của bao với lượt bỏ kiện trong video` +
       ` (theo ${pick.label}${other ? `; cách kia ghép ${other.got}` : ''})` + (doubts ? `; ${doubts} lượt độ trễ bất thường cần kiểm tra.` : '.'), matched ? 'okc' : 'err');
     st.lastMatches = matches;
+    st.train = null; renderTrain(); renderTrainStats(); trainBtns();
   }
+
+  // ---------- duyệt & dữ liệu huấn luyện ----------
+  st.train = null;
+  const trainBtns = () => {
+    const has = !!(st.train && st.train.items.length);
+    $('train-build').disabled = st.busy || !st.lastMatches || !st.roi;
+    $('train-allok').disabled = st.busy || !has;
+    $('train-save').disabled = st.busy || !has;
+    $('train-dl').disabled = st.busy || !has;
+  };
+  function trainMeta() {
+    const f = st.fmsResult;
+    return { bag: f ? f.pos.bag : ($('bag').value.trim() || ''), camera: $('camera').value.trim(), videoFile: st.file,
+      roi: st.roi, offset: f ? f.offset : null, signal: st.scan ? st.scan.signalUsed || '' : '' };
+  }
+  function trainReviews() {
+    const r = {};
+    for (const it of st.train.items) if (it.label) r[it.order] = { label: it.label, tS: it.tS };
+    return r;
+  }
+  function renderTrainStats() {
+    if (!st.train) { $('train-stats').replaceChildren(); return; }
+    const s = A.trainset.summarize(A.trainset.buildSamples(st.lastMatches, trainReviews(), trainMeta()));
+    const pend = st.train.items.filter((i) => !i.label).length;
+    $('train-stats').textContent = `Đúng ${s.bo_vao} · Sai ${s.sai} · Không rõ ${s.khong_ro} · Chưa duyệt ${pend}`;
+  }
+  async function trainFrames(it) {
+    const t = it.tS ?? (it.event ? it.event.peakS : it.v + 1);
+    it.frames = (await A.counter.sampleFrames(video, st.roi, t)).frames;
+    it.framesAt = t;
+  }
+  function renderTrain() {
+    const ul = $('train-list'); ul.replaceChildren();
+    if (!st.train) return;
+    for (const it of st.train.items) {
+      const li = document.createElement('li');
+      li.style.cssText = 'border:1px solid var(--line);border-radius:8px;padding:6px;display:grid;gap:4px';
+      if (it.label === 'bo_vao') li.style.background = 'var(--okbg)';
+      else if (it.label === 'sai') li.style.background = 'var(--badbg)';
+      else if (it.label === 'khong_ro') li.style.background = 'var(--warnbg)';
+      const head = document.createElement('div'); head.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap;align-items:baseline';
+      head.append(Object.assign(document.createElement('b'), { textContent: `#${it.index} ${it.order}` }));
+      const t = it.tS ?? (it.event ? it.event.peakS : null);
+      head.append(Object.assign(document.createElement('span'), { className: 'muted',
+        textContent: t == null ? 'không ghép được lượt nào' : `${fmt(t)}${it.tS != null ? ' (đã sửa)' : ''}${it.event && it.tS == null ? ` · sau quét ${it.lagS.toFixed(1)}s` : ''}${it.doubt ? ' · độ trễ bất thường' : ''}` }));
+      li.append(head);
+      const strip = document.createElement('div'); strip.style.cssText = 'display:flex;gap:3px';
+      for (const [k, src] of (it.frames || []).entries()) {
+        const im = document.createElement('img'); im.src = src; im.alt = ['-0,4s', '0s', '+0,4s'][k];
+        im.style.cssText = 'width:32%;border-radius:4px' + (k === 1 ? ';outline:2px solid #ffd400' : '');
+        strip.append(im);
+      }
+      li.append(strip);
+      const acts = document.createElement('div'); acts.style.cssText = 'display:flex;gap:5px;flex-wrap:wrap';
+      const btn = (txt, fn) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = txt; b.style.cssText = 'min-height:30px;padding:3px 8px;font-size:13px'; b.addEventListener('click', fn); return b; };
+      const setL = (l) => () => { it.label = it.label === l ? null : l; renderTrain(); renderTrainStats(); };
+      acts.append(btn('✓ Đúng', setL('bo_vao')), btn('✗ Sai', setL('sai')), btn('? Không rõ', setL('khong_ro')),
+        btn('Xem lại', () => { if (t != null) replay({ startS: t - 0.8, endS: t + 0.6 }); }),
+        btn('Sửa = khung đang xem', async () => {
+          video.pause(); it.tS = video.currentTime; it.label = 'bo_vao';
+          await trainFrames(it); video.currentTime = it.tS; renderTrain(); renderTrainStats();
+        }));
+      li.append(acts); ul.append(li);
+    }
+  }
+  $('train-build').addEventListener('click', async () => {
+    if (!st.lastMatches) return;
+    setBusy(true);
+    try {
+      st.train = { items: st.lastMatches.map((m) => ({ order: m.order, index: m.index, v: m.v, event: m.event, lagS: m.lagS, doubt: m.doubt, label: null, tS: null })) };
+      for (let i = 0; i < st.train.items.length; i++) {
+        msg('train-msg', `Đang cắt ảnh ${i + 1}/${st.train.items.length}…`);
+        await trainFrames(st.train.items[i]);
+      }
+      msg('train-msg', 'Duyệt từng đơn rồi bấm Lưu.', 'okc');
+      renderTrain(); renderTrainStats();
+    } catch (e) { msg('train-msg', 'Lỗi: ' + e.message, 'err'); }
+    finally { setBusy(false); trainBtns(); }
+  });
+  $('train-allok').addEventListener('click', () => {
+    for (const it of st.train.items) if (!it.label && (it.event || it.tS != null) && !it.doubt) it.label = 'bo_vao';
+    renderTrain(); renderTrainStats();
+  });
+  async function collectSamples() {
+    const meta = trainMeta();
+    const samples = A.trainset.buildSamples(st.lastMatches, trainReviews(), meta);
+    const byOrder = Object.fromEntries(st.train.items.map((it) => [it.order, it]));
+    for (const s of samples) {
+      const it = byOrder[s.order];
+      s.frames = it.frames && Math.abs((it.framesAt ?? -1) - s.videoTimeS) <= 0.01 ? it.frames : (await A.counter.sampleFrames(video, st.roi, s.videoTimeS)).frames;
+    }
+    if ($('train-neg').checked) {
+      const ok = samples.filter((s) => s.label === 'bo_vao').map((s) => s.videoTimeS);
+      for (const tS of A.trainset.negativeTimes(ok, { maxN: Math.ceil(ok.length / 2) })) {
+        const neg = { id: A.trainset.sampleId({ bag: meta.bag, label: 'khong_kien', tS }), label: 'khong_kien', corrected: false,
+          order: '', index: '', bag: meta.bag, camera: meta.camera, videoFile: meta.videoFile, videoTimeS: tS, scanVideoS: null,
+          roi: meta.roi, signal: meta.signal, offset: meta.offset };
+        neg.frames = (await A.counter.sampleFrames(video, st.roi, tS)).frames;
+        samples.push(neg);
+      }
+    }
+    return samples;
+  }
+  $('train-save').addEventListener('click', async () => {
+    const key = $('key').value.trim(); store(KEY_STORE, key);
+    setBusy(true);
+    try {
+      msg('train-msg', 'Đang chuẩn bị ảnh mẫu…');
+      const samples = await collectSamples();
+      if (!samples.length) { msg('train-msg', 'Chưa có đơn nào được duyệt.', 'err'); return; }
+      let done = 0;
+      for (const s of samples) {
+        const { frames, ...meta } = s;
+        await rpc('uiSaveTrainingSample', key, meta, frames.map((d, i) => ({ name: 'f' + i, base64: d.split(',')[1] })));
+        msg('train-msg', `Đã lưu ${++done}/${samples.length} mẫu…`);
+      }
+      const stats = await rpc('uiTrainingStats', key).catch(() => null);
+      msg('train-msg', `Đã lưu ${samples.length} mẫu.` + (stats ? ` Tổng trên webapp: ${stats.total} (đúng ${stats.bo_vao}, sai ${stats.sai}, không có kiện ${stats.khong_kien}).` : ''), 'okc');
+    } catch (e) { msg('train-msg', 'Không lưu được: ' + (e && e.message || e) + '\nCó thể bấm "Tải file mẫu về máy" rồi gửi file.', 'err'); }
+    finally { setBusy(false); trainBtns(); }
+  });
+  $('train-dl').addEventListener('click', async () => {
+    setBusy(true);
+    try {
+      msg('train-msg', 'Đang chuẩn bị file…');
+      const samples = await collectSamples();
+      if (!samples.length) { msg('train-msg', 'Chưa có đơn nào được duyệt.', 'err'); return; }
+      const blob = new Blob([JSON.stringify({ format: 'dem-kien-train/1', createdAt: new Date().toISOString(), samples })], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `mau_huan_luyen_${(trainMeta().bag || 'bao').replace(/[^\w-]/g, '_')}_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      msg('train-msg', `Đã tạo file ${samples.length} mẫu.`, 'okc');
+    } catch (e) { msg('train-msg', 'Lỗi: ' + e.message, 'err'); }
+    finally { setBusy(false); trainBtns(); }
+  });
 
   // ---------- lưu ----------
   $('key').value = load(KEY_STORE);
@@ -664,7 +821,7 @@
     fetch(q.get('src')).then((r) => r.blob()).then((b) => openFile(b, q.get('src').split('/').pop()));
     if (q.get('fms')) fetch(q.get('fms')).then((r) => r.text()).then((t) => { $('fms-text').value = t; setFms(A.fms.parseTable(t), q.get('fms').split('/').pop()); });
   }
-  window.__dem = { st, setRoi, setFms, markFms, findBag }; // để kiểm thử tự động
+  window.__dem = { st, setRoi, setFms, markFms, findBag, collectSamples }; // để kiểm thử tự động
 })();
 </script>
 </body>

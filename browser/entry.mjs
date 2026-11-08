@@ -9,4 +9,5 @@ export * as fms from './core/fms.mjs';
 export * as xlsx from './core/xlsx.mjs';
 export * as rhythm from './core/rhythm.mjs';
 export * as bagfinder from './bagfinder.mjs';
+export * as trainset from './core/trainset.mjs';
 export const version = '0.1.0';

@@ -2,7 +2,7 @@
 // app tự học mẫu chữ số trong ~12 giây tiếp theo, rồi đọc đồng hồ dọc video.
 import { seek } from './video.mjs';
 import { labelLayout, formatLike, parseClock } from './core/clock.mjs';
-import { fitGrid, buildTemplates, readOsd, cellChange } from './core/osd.mjs';
+import { fitGrid, buildTemplates, readOsd, cellChange, scoreText } from './core/osd.mjs';
 import { buildSync } from './core/sync.mjs';
 
 const DEFAULT_ROI_FRAC = { x: 0, y: 20 / 720, w: 380 / 1280, h: 70 / 720 };
@@ -76,7 +76,8 @@ export async function learnClock(video, label, atS, roi = defaultClockRoi(video.
   if (bad.length > Math.floor(samples.length * 0.1)) {
     throw new Error(`Đồng hồ không khớp nhãn ở ${bad.length}/${samples.length} mẫu (vd đọc "${bad[0].got}", mong "${bad[0].want}"). Kiểm tra chữ đã nhập hoặc chọn khung khác.`);
   }
-  return { roi, grid, templates, layout, fromIndex };
+  // mốc: tại khung tTick, đồng hồ vừa chuyển sang giây (nhãn + 1)
+  return { roi, grid, templates, layout, fromIndex, anchorT: tick.tTick, anchorPrevT: tick.tPrev, anchorWall: layout.wall + 1 };
 }
 
 /** Đọc đồng hồ dọc video, trả SyncResult. */
@@ -87,11 +88,22 @@ export async function syncClock(video, clock, { stepS = 15, onProgress, signal }
   const ts = [];
   for (let t = 0.2; t < dur - 0.3; t += stepS) ts.push(t);
   ts.push(Math.max(0, dur - 0.3));
+  // Đồng hồ chạy liên tục -> đoán trước được giờ. Nếu chữ đọc khác dự đoán mà giờ dự đoán vẫn khớp gần bằng
+  // (chữ số dễ nhầm như 8/6, 5/9) thì lấy dự đoán; dự đoán khớp kém hẳn -> đồng hồ nhảy thật, giữ chữ đọc.
+  const readPredicted = (img, t, rounding) => {
+    const r = readOsd(img, grid, templates, { fromIndex });
+    if (clock.anchorT == null) return r;
+    const pred = formatLike(layout, clock.anchorWall + rounding(t - clock.anchorT));
+    if (r.text === pred) return r;
+    const sp = scoreText(img, grid, templates, pred, { fromIndex });
+    const sr = scoreText(img, grid, templates, r.text, { fromIndex });
+    return sp >= sr - 0.06 && sp >= 0.45 ? { ...r, text: pred, ok: true, predicted: true } : r;
+  };
   const samples = [];
   for (let i = 0; i < ts.length; i++) {
     if (signal?.aborted) throw new DOMException('Đã hủy', 'AbortError');
     const f = await frameAt(video, roi, ts[i]);
-    const r = readOsd(f.img, grid, templates, { fromIndex });
+    const r = readPredicted(f.img, f.t, Math.floor);
     const wall = r.ok ? parseClock(r.text, layout.order).wall : null;
     samples.push({ videoS: f.t, wall, text: r.text });
     onProgress?.(i + 1, ts.length);
@@ -99,10 +111,17 @@ export async function syncClock(video, clock, { stepS = 15, onProgress, signal }
   const secIdx = layout.groups.s.end - 1;
   return buildSync(samples, dur, {
     refine: async (group) => {
+      // Đoạn chứa mốc đã học: giờ thật vượt qua anchorWall trong (anchorPrevT, anchorT] -> độ lệch chính xác tới 1 khung
+      if (clock.anchorT != null && clock.anchorPrevT != null &&
+          group[0].videoS - 1 <= clock.anchorT && clock.anchorT <= group[group.length - 1].videoS + 1) {
+        const lo = clock.anchorWall - clock.anchorT, hi = clock.anchorWall - clock.anchorPrevT;
+        return { offset: (lo + hi) / 2, uncertainty: (hi - lo) / 2 };
+      }
       const mid = group[group.length >> 1];
       const tk = await findTick(video, roi, grid, secIdx, mid.videoS);
       if (!tk) return null;
-      const r = readOsd(tk.img, grid, templates, { fromIndex });
+      // ở khung vừa đổi giây, số giây trôi qua từ mốc ~ số nguyên -> làm tròn
+      const r = readPredicted(tk.img, tk.tTick, Math.round);
       const wall = r.ok ? parseClock(r.text, layout.order).wall : null;
       if (wall === null) return null;
       const lo = wall - tk.tTick, hi = wall - tk.tPrev;
