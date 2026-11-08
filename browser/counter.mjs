@@ -117,3 +117,22 @@ export async function evidence(video, roi, tS, labelLines = []) {
 
   return { full: toJpeg(full), marked: toJpeg(marked), crop: toJpeg(crop, 0.9) };
 }
+
+/**
+ * Ảnh mẫu huấn luyện: 3 khung nhỏ vùng ngữ cảnh quanh miệng bao tại tS + offsets (mặc định -0,4/0/+0,4s).
+ * Cùng một hộp cắt cho cả 3 khung (để mô hình thấy chuyển động). Trả {box, frames: [dataURL JPEG]}.
+ */
+export async function sampleFrames(video, roi, tS, { offsets = [-0.4, 0, 0.4], maxW = 224, quality = 0.85 } = {}) {
+  const box = contextBox(roi, video.videoWidth, video.videoHeight);
+  const s = Math.min(1, maxW / box.w);
+  const c = document.createElement('canvas');
+  c.width = Math.round(box.w * s); c.height = Math.round(box.h * s);
+  const ctx = c.getContext('2d');
+  const frames = [];
+  for (const o of offsets) {
+    await seek(video, Math.max(0, Math.min(video.duration - 0.05, tS + o)));
+    ctx.drawImage(video, box.x, box.y, box.w, box.h, 0, 0, c.width, c.height);
+    frames.push(c.toDataURL('image/jpeg', quality));
+  }
+  return { box, frames };
+}

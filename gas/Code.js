@@ -26,6 +26,9 @@ function setup() {
   if (!p.getProperty('API_TOKEN')) p.setProperty('API_TOKEN', Utilities.getUuid().replace(/-/g, ''));
   if (!p.getProperty('VIEW_KEY')) p.setProperty('VIEW_KEY', Utilities.getUuid().slice(0, 8));
   if (!p.getProperty('RESULT_SHEET_ID')) p.setProperty('RESULT_SHEET_ID', DEFAULT_RESULT_SHEET_ID);
+  if (!p.getProperty('TRAIN_FOLDER_ID')) {
+    p.setProperty('TRAIN_FOLDER_ID', DriveApp.createFolder('Du lieu huan luyen dem kien').getId());
+  }
   if (!p.getProperty('EVIDENCE_FOLDER_ID')) {
     p.setProperty('EVIDENCE_FOLDER_ID', DriveApp.createFolder('Bang chung dem kien').getId());
   }
@@ -127,6 +130,88 @@ function uiSaveMark(viewKey, record) {
 function uiUploadEvidence(viewKey, data) {
   checkViewKey_(viewKey);
   return uploadEvidence_(data || {});
+}
+
+// ---------------------------------------------------------------------------
+// Dữ liệu huấn luyện: mẫu đã duyệt từ trang Đếm (3 ảnh nhỏ quanh miệng bao + nhãn)
+// ---------------------------------------------------------------------------
+var TRAIN_SHEET_NAME = 'MauHuanLuyen';
+var TRAIN_COLUMNS = ['id', 'label', 'corrected', 'bag', 'order', 'index', 'camera', 'videoFile', 'videoTimeS',
+  'scanVideoS', 'roi', 'signal', 'offset', 'files', 'reviewer', 'updatedAt'];
+var TRAIN_LABELS = ['bo_vao', 'sai', 'khong_ro', 'khong_kien'];
+
+function getTrainSheet_() {
+  var ss = SpreadsheetApp.openById(prop_('RESULT_SHEET_ID'));
+  var sh = ss.getSheetByName(TRAIN_SHEET_NAME);
+  if (!sh) {
+    sh = ss.insertSheet(TRAIN_SHEET_NAME);
+    sh.getRange(1, 1, 1, TRAIN_COLUMNS.length).setValues([TRAIN_COLUMNS]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+    sh.getRange('A:A').setNumberFormat('@');
+    sh.getRange('E:E').setNumberFormat('@');
+  }
+  return sh;
+}
+
+function trainFolderFor_(bag) {
+  var root = DriveApp.getFolderById(prop_('TRAIN_FOLDER_ID'));
+  var name = String(bag || 'KHONG_RO').replace(/[^\w\-]/g, '_');
+  var it = root.getFoldersByName(name);
+  return it.hasNext() ? it.next() : root.createFolder(name);
+}
+
+/** Lưu một mẫu (ghi đè theo id): images = [{name, base64}] (JPEG nhỏ). */
+function uiSaveTrainingSample(viewKey, sample, images) {
+  checkViewKey_(viewKey);
+  if (!sample || !sample.id) throw new Error('Thiếu id mẫu');
+  if (TRAIN_LABELS.indexOf(sample.label) < 0) throw new Error('Nhãn không hợp lệ: ' + sample.label);
+  if (!images || !images.length || images.length > 6) throw new Error('Cần 1-6 ảnh mỗi mẫu');
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var sh = getTrainSheet_();
+    var folder = trainFolderFor_(sample.bag);
+    var ids = images.map(function (im, i) {
+      var bytes = Utilities.base64Decode(im.base64);
+      if (bytes.length > 2 * 1024 * 1024) throw new Error('Ảnh mẫu quá lớn');
+      var name = String(sample.id) + '_' + (im.name || ('f' + i)) + '.jpg';
+      return folder.createFile(Utilities.newBlob(bytes, 'image/jpeg', name)).getId();
+    });
+    var n = sh.getLastRow(), row = -1, oldFiles = [];
+    if (n >= 2) {
+      var hit = sh.getRange(2, 1, n - 1, 1).createTextFinder(String(sample.id)).matchEntireCell(true).findNext();
+      if (hit) {
+        row = hit.getRow();
+        try { oldFiles = JSON.parse(sh.getRange(row, TRAIN_COLUMNS.indexOf('files') + 1).getValue() || '[]'); } catch (e) { oldFiles = []; }
+      }
+    }
+    var email = '';
+    try { email = Session.getActiveUser().getEmail(); } catch (e) { /* không có quyền đọc email */ }
+    var rec = {};
+    TRAIN_COLUMNS.forEach(function (c) { rec[c] = sample[c]; });
+    rec.roi = JSON.stringify(sample.roi || null);
+    rec.files = JSON.stringify(ids);
+    rec.reviewer = email;
+    rec.updatedAt = new Date().toISOString();
+    var vals = [TRAIN_COLUMNS.map(function (c) { var v = rec[c]; return v === undefined || v === null ? '' : v; })];
+    if (row > 0) sh.getRange(row, 1, 1, TRAIN_COLUMNS.length).setValues(vals);
+    else sh.appendRow(vals[0]);
+    oldFiles.forEach(function (fid) { try { DriveApp.getFileById(fid).setTrashed(true); } catch (e) { /* đã mất */ } });
+    return { ok: true, id: sample.id, files: ids.length, replaced: row > 0 };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Thống kê số mẫu theo nhãn. */
+function uiTrainingStats(viewKey) {
+  checkViewKey_(viewKey);
+  var sh = getTrainSheet_();
+  var n = sh.getLastRow();
+  var out = { total: 0, bo_vao: 0, sai: 0, khong_ro: 0, khong_kien: 0 };
+  if (n < 2) return out;
+  sh.getRange(2, 2, n - 1, 1).getValues().forEach(function (r) { out.total++; out[r[0]] = (out[r[0]] || 0) + 1; });
+  return out;
 }
 
 function uiPackingTime(viewKey, orderCode) {
