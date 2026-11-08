@@ -155,6 +155,42 @@ export function matchScansToEvents(scanV, events, { minLag = -1, maxLag = 12 } =
 }
 
 /**
+ * Ghép tối ưu cả chuỗi (quy hoạch động, giữ thứ tự): mỗi lần quét nhận tối đa một lượt, lượt dùng tối đa một lần,
+ * chi phí = |độ trễ - expLag|; bỏ qua một lần quét tốn skipCost; lượt thừa bỏ qua miễn phí.
+ * Tránh lỗi dây chuyền của cách ghép tham lam khi một lượt thật bị thiếu.
+ * scanV: [{order, index, v}], events: [{id, peakS}] (nên gồm cả lượt "người che"/"cần kiểm tra").
+ */
+export function alignScans(scanV, events, { expLag = 1, maxDev = 4, skipCost = 4 } = {}) {
+  const S = [...scanV].sort((a, b) => a.v - b.v);
+  const E = [...events].sort((a, b) => a.peakS - b.peakS);
+  const n = S.length, m = E.length, INF = 1e18;
+  const dp = Array.from({ length: n + 1 }, () => new Float64Array(m + 1).fill(INF));
+  const bt = Array.from({ length: n + 1 }, () => new Int8Array(m + 1)); // 1 bỏ quét, 2 bỏ lượt, 3 ghép
+  dp[0][0] = 0;
+  for (let i = 0; i <= n; i++) {
+    for (let j = 0; j <= m; j++) {
+      const c = dp[i][j];
+      if (c >= INF) continue;
+      if (i < n && c + skipCost < dp[i + 1][j]) { dp[i + 1][j] = c + skipCost; bt[i + 1][j] = 1; }
+      if (j < m && c < dp[i][j + 1]) { dp[i][j + 1] = c; bt[i][j + 1] = 2; }
+      if (i < n && j < m) {
+        const dev = Math.abs(E[j].peakS - S[i].v - expLag);
+        if (dev <= maxDev && c + dev < dp[i + 1][j + 1]) { dp[i + 1][j + 1] = c + dev; bt[i + 1][j + 1] = 3; }
+      }
+    }
+  }
+  const out = S.map((s) => ({ ...s, event: null, lagS: null }));
+  let i = n, j = m;
+  while (i > 0 || j > 0) {
+    const b = bt[i][j];
+    if (b === 3) { out[i - 1].event = E[j - 1]; out[i - 1].lagS = E[j - 1].peakS - S[i - 1].v; i--; j--; }
+    else if (b === 1) i--;
+    else j--;
+  }
+  return out;
+}
+
+/**
  * Ước lượng độ lệch giờ: video_time = scan_time_as_video + offset. Thử các offset trong [lo, hi] bước step,
  * chọn offset có nhiều lần quét có lượt bỏ kiện ngay sau (0..window giây) nhất; hòa thì chọn độ trễ trung vị nhỏ.
  */

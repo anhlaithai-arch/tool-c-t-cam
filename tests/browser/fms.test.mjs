@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseTable, detectColumns, parseTime, loadScans, orderPosition, matchScansToEvents, estimateOffset } from '../../browser/core/fms.mjs';
+import { parseTable, detectColumns, parseTime, loadScans, orderPosition, matchScansToEvents, alignScans, estimateOffset } from '../../browser/core/fms.mjs';
 import { toSec } from '../../browser/core/clock.mjs';
 
 const TSV = [
@@ -48,6 +48,17 @@ test('match scans to drop events in order, no reuse', () => {
   const ev = [{ id: 'e1', peakS: 12 }, { id: 'e2', peakS: 23 }, { id: 'e3', peakS: 25 }, { id: 'x', peakS: 60 }];
   const m = matchScansToEvents(scanV, ev);
   assert.deepEqual(m.map((r) => r.event?.id), ['e1', 'e2', 'e3']);
+});
+
+test('alignScans avoids cascade when one true drop is missing from counted list', () => {
+  const scanV = [{ order: 'A', v: 10 }, { order: 'B', v: 12 }, { order: 'C', v: 15 }];
+  // lượt thật: 11, 13, 16; lượt thừa 14.5 (tay khua). Greedy với danh sách thiếu 13 sẽ dây chuyền sai.
+  const ev = [{ id: 'a', peakS: 11 }, { id: 'b', peakS: 13 }, { id: 'x', peakS: 14.5 }, { id: 'c', peakS: 16 }];
+  const r = alignScans(scanV, ev, { expLag: 1 });
+  assert.deepEqual(r.map((m) => m.event?.id), ['a', 'b', 'c']);
+  const r2 = alignScans(scanV, ev.filter((e) => e.id !== 'b'), { expLag: 1 });
+  assert.equal(r2[0].event?.id, 'a');
+  assert.equal(r2[2].event?.id, 'c'); // thiếu một lượt không kéo lệch đơn phía sau
 });
 
 test('estimate clock offset between FMS and camera', () => {

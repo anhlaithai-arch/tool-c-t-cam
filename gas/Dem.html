@@ -109,7 +109,26 @@
     </div>
 
     <div class="panel">
+      <h2>Dữ liệu quét FMS</h2>
+      <p class="muted">Dán bảng xuất từ FMS (Excel: chọn vùng có hàng tiêu đề → Ctrl+C → dán vào đây), chọn file CSV,
+        hoặc lấy từ sheet "FMS" trên webapp. Cần 3 cột: mã đơn, giờ quét, mã bao.</p>
+      <textarea id="fms-text" rows="4" style="width:100%;font:13px monospace" placeholder="Mã vận đơn	Thời gian quét	Mã bao"></textarea>
+      <div class="row" style="margin-top:6px">
+        <button id="fms-load" type="button">Đọc bảng đã dán</button>
+        <input id="fms-file" type="file" accept=".csv,.txt,.tsv,text/csv,text/plain">
+        <button id="fms-gas" type="button">Lấy từ webapp theo mã đơn</button>
+      </div>
+      <p id="fms-msg" class="msg"></p>
+      <div id="fms-pos" hidden style="margin-top:8px"></div>
+    </div>
+
+    <div class="panel">
       <h2>3. Đánh dấu đơn</h2>
+      <div class="row">
+        <button id="mark-fms" type="button" class="primary" disabled>Đánh dấu theo FMS</button>
+        <div><label for="fms-offset">Lệch giờ camera so với FMS (giây, để trống = tự tính)</label><input id="fms-offset" type="text" placeholder="tự tính"></div>
+      </div>
+      <p class="muted" style="margin-top:4px">Không có FMS: nhập vị trí thủ công bên dưới.</p>
       <label for="target">Vị trí đơn: thời điểm trong video (mm:ss), giờ camera (HH:MM:SS) hoặc thứ tự (#20)</label>
       <div class="row">
         <input id="target" type="text" placeholder="vd 12:31.5  hoặc  16:59:40  hoặc  #20">
@@ -139,8 +158,8 @@
     </div>
 
     <div class="panel">
-      <details>
-        <summary>Đồng bộ giờ camera (tùy chọn, để nhập vị trí bằng giờ camera)</summary>
+      <details open>
+        <summary>Đồng bộ giờ camera (cần cho "Đánh dấu theo FMS" và nhập giờ camera)</summary>
         <p class="muted">Dừng ở một khung, gõ đúng chữ đồng hồ góc trên trái, vd <code>11-04-2026 Wed 16:48:42</code>.</p>
         <div class="row">
           <input id="clock-label" type="text" placeholder="chữ đồng hồ trên khung hiện tại">
@@ -186,6 +205,7 @@
   function refreshButtons() {
     $('scan').disabled = st.busy || !st.h || !st.roi;
     $('mark').disabled = st.busy || !st.scan;
+    $('mark-fms').disabled = st.busy || !st.h || !st.roi || !st.fms || !st.fms.scans.length;
     $('clock-run').disabled = st.busy || !st.h;
   }
 
@@ -311,13 +331,19 @@
       img.addEventListener('click', () => replay(it));
       const body = document.createElement('div');
       const head = document.createElement('div'); head.className = 'head';
-      head.append(Object.assign(document.createElement('span'), { className: 'num', textContent: it.counted ? 'Kiện #' + it.label : 'Không tính' }));
+      const fmT = st.fmsMatch && st.fmsMatch[it.id];
+      const title = fmT ? `Kiện ${fmT.index}/${fmT.total} · ${fmT.order}`
+        : st.fmsMatch ? 'Không khớp lần quét FMS nào'
+        : it.counted ? 'Kiện #' + it.label : 'Không tính';
+      head.append(Object.assign(document.createElement('span'), { className: 'num', textContent: title }));
       const badge = document.createElement('span');
       badge.className = 'badge ' + (it.decision === 'accept' ? 'b-acc' : it.decision === 'reject' ? 'b-rej' : it.kind === 'drop' ? 'b-pend' : 'b-occ');
       badge.textContent = it.decision === 'accept' ? 'Đã xác nhận' : it.decision === 'reject' ? 'Đã bỏ' : it.kind === 'occlusion' ? 'Nghi người che' : it.kind === 'weak' ? 'Cần kiểm tra' : 'AI đề xuất';
       head.append(badge);
       body.append(head);
       body.append(Object.assign(document.createElement('div'), { className: 'muted', textContent: `${fmt(it.startS)}–${fmt(it.endS)}${st.sync ? ' · ' + wallStr(it.peakS) : ''} · ${it.reason}` }));
+      const fm = st.fmsMatch && st.fmsMatch[it.id];
+      if (fm) body.append(Object.assign(document.createElement('div'), { className: 'okc', textContent: `Khớp FMS: ${fm.order} (kiện ${fm.index}/${fm.total}, sau quét ${fm.lag.toFixed(1)}s)` }));
       const acts = document.createElement('div'); acts.className = 'acts';
       const btn = (t, f) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = t; b.addEventListener('click', f); return b; };
       acts.append(btn('✓ Tính', () => decide(it.id, 'accept')), btn('✗ Bỏ', () => decide(it.id, 'reject')), btn('Xem lại', () => replay(it)));
@@ -345,6 +371,7 @@
   $('mark').addEventListener('click', () => mark(false));
   function wallStr(v) { const w = st.sync && st.sync.toWall(v); return w == null ? 'giờ ?' : A.clock.secToIso(w).slice(11); }
   async function mark(silent) {
+    st.fmsResult = null;
     const raw = $('target').value.trim();
     const n = numbered();
     let found = null;
@@ -389,22 +416,138 @@
     msg('mark-msg', closed ? '' : '* phiên chưa chốt: tổng có thể còn thay đổi.');
   }
 
+  // ---------- FMS ----------
+  function setFms(table, source) {
+    const r = A.fms.loadScans(table);
+    st.fms = r.scans.length ? r : null;
+    const bags = new Set(r.scans.map((x) => x.bag));
+    const skipped = r.errors.length ? '\nBỏ qua: ' + r.errors.slice(0, 5).join('; ') + (r.errors.length > 5 ? '…' : '') : '';
+    msg('fms-msg', r.scans.length ? `${source}: ${r.scans.length} lần quét, ${bags.size} bao.` + skipped
+      : 'Không đọc được: ' + r.errors.join('; '), r.scans.length ? 'okc' : 'err');
+    showFmsPos(); refreshButtons();
+  }
+  $('fms-load').addEventListener('click', () => setFms(A.fms.parseTable($('fms-text').value), 'Bảng đã dán'));
+  $('fms-file').addEventListener('change', async () => { const f = $('fms-file').files[0]; if (f) setFms(A.fms.parseTable(await f.text()), f.name); });
+  $('fms-gas').addEventListener('click', async () => {
+    const order = $('order').value.trim(); if (!order) { msg('fms-msg', 'Bắn mã đơn trước.', 'err'); return; }
+    const key = $('key').value.trim(); store(KEY_STORE, key);
+    try { msg('fms-msg', 'Đang lấy từ webapp…'); const r = await rpc('uiFmsBag', key, order); setFms([r.header, ...r.rows], 'Sheet FMS'); }
+    catch (e) { msg('fms-msg', 'Không lấy được: ' + (e && e.message || e), 'err'); }
+  });
+  $('order').addEventListener('keydown', (e) => { if (e.key === 'Enter') { showFmsPos(); $('order').select(); } });
+  function fmsPos() { return st.fms && $('order').value.trim() ? A.fms.orderPosition(st.fms.scans, $('order').value) : null; }
+  function showFmsPos() {
+    const box = $('fms-pos'); box.replaceChildren();
+    if (!st.fms || !$('order').value.trim()) { box.hidden = true; return; }
+    const p = fmsPos();
+    box.hidden = false;
+    if (!p) { box.append(Object.assign(document.createElement('p'), { className: 'msg err', textContent: 'Mã đơn không có trong dữ liệu FMS.' })); return; }
+    box.append(Object.assign(document.createElement('p'), { style: 'font-weight:750;font-size:18px;margin:0',
+      textContent: `${p.order}: kiện thứ ${p.index}/${p.total} trong bao ${p.bag || '?'} (theo giờ quét FMS)` }));
+    const notes = [];
+    if (p.duplicates) notes.push(`đơn được quét ${p.duplicates + 1} lần – lấy lần đầu`);
+    if (p.otherBags.length) notes.push('cũng có trong bao ' + p.otherBags.join(', '));
+    if (notes.length) box.append(Object.assign(document.createElement('p'), { className: 'msg err', textContent: 'Lưu ý: ' + notes.join('; ') }));
+    const ol = document.createElement('ol'); ol.style.cssText = 'max-height:160px;overflow:auto;margin:6px 0;padding-left:28px;font-size:13px';
+    for (const s of p.bagScans) {
+      const li = document.createElement('li'); li.textContent = `${s.order} · ${A.clock.secToIso(s.time).slice(11)}`;
+      if (s.order === p.order) li.style.cssText = 'font-weight:700;background:#fff3b0';
+      ol.append(li);
+    }
+    box.append(ol);
+  }
+  $('mark-fms').addEventListener('click', markFms);
+  async function markFms() {
+    const p = fmsPos();
+    if (!p) { msg('mark-msg', 'Bắn mã đơn có trong dữ liệu FMS trước.', 'err'); return; }
+    if (!st.sync || !st.sync.segments.length) { msg('mark-msg', 'Cần đồng bộ giờ camera trước (mục "Đồng bộ giờ camera") để đổi giờ quét FMS sang vị trí trong video.', 'err'); return; }
+    const seg = st.sync.segments[0];
+    const raw = p.bagScans.map((s) => {
+      const r = st.sync.toVideo(s.time);
+      return { order: s.order, index: s.index, time: s.time, v: r.videoS != null ? r.videoS : s.time - seg.offset };
+    });
+    const dur = st.h.durationS;
+    const inVid = raw.filter((s) => s.v > -120 && s.v < dur + 120);
+    if (!inVid.length) { msg('mark-msg', 'Giờ quét của bao này không nằm trong video đang mở (kể cả lệch ±2 phút). Chọn đúng video.', 'err'); return; }
+    const lo = Math.max(0, Math.min(...inVid.map((s) => s.v)) - 70), hi = Math.min(dur, Math.max(...inVid.map((s) => s.v)) + 70);
+    if (!st.scan || st.scan.range.startS > lo + 1 || st.scan.range.endS < hi - 1) {
+      $('from').value = fmt(lo); $('to').value = fmt(hi);
+      msg('mark-msg', 'Đang quét chuyển động quanh giờ quét của bao…');
+      $('scan').click();
+      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => { const iv = setInterval(() => { if (!st.busy) { clearInterval(iv); r(); } }, 300); });
+      if (!st.scan) return;
+    }
+    const n = numbered();
+    const counted = n.items.filter((i) => i.counted);
+    // Có FMS: mọi lượt (kể cả "người che", "cần kiểm tra") đều là ứng viên, trừ lượt người dùng đã bỏ.
+    const candidates = n.items.filter((i) => i.decision !== 'reject');
+    const manual = $('fms-offset').value.trim();
+    let offset, offsetNote, expLag = 1;
+    if (manual !== '' && isFinite(Number(manual))) { offset = Number(manual); offsetNote = 'nhập tay'; }
+    else {
+      const est = A.fms.estimateOffset(inVid, counted, { lo: -60, hi: 60, step: 0.25, window: 6 });
+      offset = est.offset; expLag = isFinite(est.medianLag) ? est.medianLag : 1;
+      offsetNote = `tự tính, khớp ${est.hits}/${est.total} lần quét`;
+      $('fms-offset').placeholder = `tự tính: ${offset >= 0 ? '+' : ''}${offset.toFixed(2)}`;
+    }
+    const matches = A.fms.alignScans(inVid.map((s) => ({ ...s, v: s.v + offset })), candidates, { expLag, maxDev: 4, skipCost: 4 });
+    st.fmsMatch = {};
+    for (const m of matches) if (m.event) st.fmsMatch[m.event.id] = { order: m.order, index: m.index, total: p.total, lag: m.lagS };
+    const mine = matches.find((m) => m.order === p.order);
+    const v = mine ? mine.v : raw.find((s) => s.order === p.order).v + offset;
+    const ev = mine && mine.event;
+    const videoS = ev ? ev.peakS : Math.min(dur - 0.05, Math.max(0, v + 2));
+    st.target = ev ? { id: ev.id } : null;
+    renderEvents();
+    if (ev) { const el = document.querySelector(`.ev[data-id="${ev.id}"]`); if (el) el.scrollIntoView({ block: 'nearest' }); }
+    const closed = $('closed').checked;
+    $('res-big').textContent = `${p.order}: Kiện thứ ${p.index}/${p.total} trong bao ${p.bag || '?'}`;
+    $('res-meta').textContent = `Theo giờ quét FMS ${p.timeIso.replace('T', ' ')} · trong video ${fmt(videoS)}` +
+      (ev ? ` · bỏ vào bao sau quét ${mine.lagS.toFixed(1)}s` : ' · KHÔNG thấy lượt bỏ kiện rõ quanh giờ quét – ảnh là khung sau quét 2s, cần kiểm tra') +
+      ` · lệch giờ camera ${offset >= 0 ? '+' : ''}${offset.toFixed(1)}s (${offsetNote})` + (closed ? '' : ' · bao chưa chốt');
+    msg('mark-msg', 'Đang tạo ảnh bằng chứng…');
+    st.ev = await A.counter.evidence(video, st.roi, videoS, [
+      `${p.order} · ${p.index}/${p.total} · bao ${p.bag || '?'}`,
+      `${$('camera').value || ''} ${fmt(videoS)} quét ${p.timeIso.slice(11)}`.trim(),
+    ]);
+    st.fmsResult = { pos: p, event: ev, videoS, lag: ev ? mine.lagS : null, offset, offsetNote };
+    if (!st.target) st.target = { id: 'scan_' + p.order };
+    $('res-img').src = st.ev.marked; $('result').hidden = false;
+    const matched = matches.filter((m) => m.event).length;
+    msg('mark-msg', `Ghép được ${matched}/${matches.length} lần quét của bao với lượt bỏ kiện trong video.`, matched ? 'okc' : 'err');
+  }
+
   // ---------- lưu ----------
   $('key').value = load(KEY_STORE);
   $('save').addEventListener('click', async () => {
     if (!st.target || !st.ev) return;
     const order = $('order').value.trim(); if (!order) { msg('save-msg', 'Nhập mã đơn trước khi lưu.', 'err'); return; }
     const key = $('key').value.trim(); store(KEY_STORE, key);
-    const n = numbered(); const it = n.items.find((i) => i.id === st.target.id);
-    const sid = 'S' + hash([st.file, st.roi.x, st.roi.y, st.roi.w, st.roi.h, st.scan.range.startS, st.scan.range.endS].join('|'));
-    const rec = {
-      id: sid + '_' + it.id, orderCode: order, sessionId: sid, bagId: $('bag').value.trim(), camera: $('camera').value.trim(),
-      videoFile: st.file, videoTimeS: Math.round(it.peakS * 1000) / 1000,
-      wallTime: st.sync && st.sync.toWall(it.peakS) != null ? A.clock.secToIso(st.sync.toWall(it.peakS)) : '',
-      orderIndex: it.label, total: n.total, sessionClosed: $('closed').checked,
-      status: it.decision === 'accept' ? 'xac_nhan' : 'can_kiem_tra',
-      note: `Vùng ${st.roi.x},${st.roi.y},${st.roi.w},${st.roi.h}; đếm ${fmt(st.scan.range.startS)}–${fmt(st.scan.range.endS)}; ${n.items.length} lượt nghi vấn`,
-    };
+    let rec;
+    if (st.fmsResult) {
+      const f = st.fmsResult;
+      const sid = 'F' + hash([f.pos.bag, st.file].join('|'));
+      rec = {
+        id: sid + '_' + f.pos.order, orderCode: f.pos.order, sessionId: sid, bagId: f.pos.bag, camera: $('camera').value.trim(),
+        videoFile: st.file, videoTimeS: Math.round(f.videoS * 1000) / 1000, wallTime: f.pos.timeIso,
+        orderIndex: String(f.pos.index), total: f.pos.total, sessionClosed: $('closed').checked,
+        status: f.event ? 'xac_nhan' : 'can_kiem_tra',
+        note: `Thứ tự theo giờ quét FMS. Lệch giờ camera ${f.offset >= 0 ? '+' : ''}${f.offset.toFixed(1)}s (${f.offsetNote}). ` +
+          (f.event ? `Bỏ vào bao sau quét ${f.lag.toFixed(1)}s.` : 'Không thấy lượt bỏ kiện rõ quanh giờ quét – cần kiểm tra.'),
+      };
+    } else {
+      const n = numbered(); const it = n.items.find((i) => i.id === st.target.id);
+      const sid = 'S' + hash([st.file, st.roi.x, st.roi.y, st.roi.w, st.roi.h, st.scan.range.startS, st.scan.range.endS].join('|'));
+      rec = {
+        id: sid + '_' + it.id, orderCode: order, sessionId: sid, bagId: $('bag').value.trim(), camera: $('camera').value.trim(),
+        videoFile: st.file, videoTimeS: Math.round(it.peakS * 1000) / 1000,
+        wallTime: st.sync && st.sync.toWall(it.peakS) != null ? A.clock.secToIso(st.sync.toWall(it.peakS)) : '',
+        orderIndex: it.label, total: n.total, sessionClosed: $('closed').checked,
+        status: it.decision === 'accept' ? 'xac_nhan' : 'can_kiem_tra',
+        note: `Vùng ${st.roi.x},${st.roi.y},${st.roi.w},${st.roi.h}; đếm ${fmt(st.scan.range.startS)}–${fmt(st.scan.range.endS)}; ${n.items.length} lượt nghi vấn`,
+      };
+    }
     $('save').disabled = true;
     try {
       msg('save-msg', 'Đang lưu kết quả…');
@@ -443,8 +586,9 @@
   const q = new URLSearchParams(location.search);
   if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname) && q.get('src')) {
     fetch(q.get('src')).then((r) => r.blob()).then((b) => openFile(b, q.get('src').split('/').pop()));
+    if (q.get('fms')) fetch(q.get('fms')).then((r) => r.text()).then((t) => { $('fms-text').value = t; setFms(A.fms.parseTable(t), q.get('fms').split('/').pop()); });
   }
-  window.__dem = { st, setRoi }; // để kiểm thử tự động
+  window.__dem = { st, setRoi, setFms, markFms }; // để kiểm thử tự động
 })();
 </script>
 </body>

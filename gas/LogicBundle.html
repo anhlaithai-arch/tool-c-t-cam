@@ -25,6 +25,7 @@ var CountingApp = (() => {
     clock: () => clock_exports,
     clocksync: () => clocksync_exports,
     counter: () => counter_exports,
+    fms: () => fms_exports,
     motion: () => motion_exports,
     sync: () => sync_exports,
     version: () => version,
@@ -953,6 +954,223 @@ var CountingApp = (() => {
         return { offset: (lo + hi) / 2, uncertainty: (hi - lo) / 2 };
       }
     });
+  }
+
+  // browser/core/fms.mjs
+  var fms_exports = {};
+  __export(fms_exports, {
+    alignScans: () => alignScans,
+    bagSequence: () => bagSequence,
+    detectColumns: () => detectColumns,
+    estimateOffset: () => estimateOffset,
+    loadScans: () => loadScans,
+    matchScansToEvents: () => matchScansToEvents,
+    orderPosition: () => orderPosition,
+    parseTable: () => parseTable,
+    parseTime: () => parseTime
+  });
+  var strip = (s) => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toLowerCase().trim();
+  function parseTable(text) {
+    const lines = String(text).replace(/\r\n?/g, "\n").split("\n").filter((l) => l.trim() !== "");
+    if (!lines.length) return [];
+    const first = lines[0];
+    const delim = first.includes("	") ? "	" : first.split(";").length > first.split(",").length ? ";" : ",";
+    return lines.map((line) => {
+      const out = [];
+      let cur = "", q = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (q) {
+          if (ch === '"' && line[i + 1] === '"') {
+            cur += '"';
+            i++;
+          } else if (ch === '"') q = false;
+          else cur += ch;
+        } else if (ch === '"') q = true;
+        else if (ch === delim) {
+          out.push(cur.trim());
+          cur = "";
+        } else cur += ch;
+      }
+      out.push(cur.trim());
+      return out;
+    });
+  }
+  var COL_HINTS = {
+    order: ["ma don", "ma van don", "van don", "order", "tracking", "awb", "shipment", "ma kien", "parcel"],
+    time: ["thoi gian", "gio quet", "scan time", "time", "ngay gio", "packing", "dong goi", "created", "timestamp"],
+    bag: ["ma bao", "bao", "bag", "tui", "sack", "container"]
+  };
+  function detectColumns(header) {
+    const h = header.map(strip);
+    const pick = (hints, exclude = []) => {
+      for (const hint of hints) {
+        const i = h.findIndex((x, k) => !exclude.includes(k) && x.includes(hint));
+        if (i >= 0) return i;
+      }
+      return -1;
+    };
+    const bag = pick(COL_HINTS.bag);
+    const order = pick(COL_HINTS.order, [bag]);
+    const time = pick(COL_HINTS.time, [bag, order]);
+    return { order, time, bag };
+  }
+  function parseTime(v, dayFirst = true) {
+    if (v instanceof Date) return toSec(v.getFullYear(), v.getMonth() + 1, v.getDate(), v.getHours(), v.getMinutes(), v.getSeconds());
+    const s = String(v ?? "").trim();
+    if (!s) return null;
+    if (/^\d{5}(\.\d+)?$/.test(s)) {
+      const days = Number(s);
+      const ms = Math.round((days - 36526) * 86400);
+      return ms;
+    }
+    let m = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(s);
+    if (m) return toSec(+m[1], +m[2], +m[3], +m[4], +m[5], +(m[6] || 0));
+    m = /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})[ T,]+(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(s);
+    if (m) {
+      const [a, b] = [+m[1], +m[2]];
+      const [d, mo] = dayFirst ? [a, b] : [b, a];
+      return toSec(+m[3], mo, d, +m[4], +m[5], +(m[6] || 0)) ?? toSec(+m[3], d, mo, +m[4], +m[5], +(m[6] || 0));
+    }
+    m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?[ ,]+(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/.exec(s);
+    if (m) {
+      const [a, b] = [+m[4], +m[5]];
+      const [d, mo] = dayFirst ? [a, b] : [b, a];
+      return toSec(+m[6], mo, d, +m[1], +m[2], +(m[3] || 0));
+    }
+    return null;
+  }
+  var normCode = (c) => String(c ?? "").trim().toUpperCase();
+  function loadScans(table, { cols = null, dayFirst = true } = {}) {
+    if (!table.length) return { scans: [], errors: ["Bảng trống"], cols: null };
+    const c = cols || detectColumns(table[0]);
+    const errors = [];
+    if (c.order < 0) errors.push("Không thấy cột mã đơn");
+    if (c.time < 0) errors.push("Không thấy cột giờ quét");
+    if (c.bag < 0) errors.push("Không thấy cột mã bao");
+    if (errors.length) return { scans: [], errors, cols: c };
+    const scans = [];
+    table.slice(1).forEach((r, i) => {
+      const order = normCode(r[c.order]);
+      if (!order) return;
+      const time = parseTime(r[c.time], dayFirst);
+      if (time === null) {
+        errors.push(`Dòng ${i + 2}: không đọc được giờ "${r[c.time]}"`);
+        return;
+      }
+      scans.push({ order, time, bag: normCode(r[c.bag]), row: i + 2 });
+    });
+    return { scans, errors, cols: c };
+  }
+  function orderPosition(scans, orderCode) {
+    const code = normCode(orderCode);
+    const mine = scans.filter((s) => s.order === code);
+    if (!mine.length) return null;
+    const first = mine.reduce((a, b) => b.time < a.time ? b : a);
+    const bagScans = bagSequence(scans, first.bag);
+    const it = bagScans.find((s) => s.order === code);
+    return {
+      order: code,
+      bag: first.bag,
+      index: it.index,
+      total: bagScans.length,
+      time: first.time,
+      timeIso: secToIso(first.time),
+      bagScans,
+      duplicates: mine.length - 1,
+      otherBags: [...new Set(mine.map((s) => s.bag))].filter((b) => b !== first.bag)
+    };
+  }
+  function bagSequence(scans, bag) {
+    const firstBy = /* @__PURE__ */ new Map();
+    for (const s of scans) {
+      if (s.bag !== bag) continue;
+      const p = firstBy.get(s.order);
+      if (!p || s.time < p.time) firstBy.set(s.order, s);
+    }
+    return [...firstBy.values()].sort((a, b) => a.time - b.time || a.row - b.row).map((s, i) => ({ ...s, index: i + 1 }));
+  }
+  function matchScansToEvents(scanV, events, { minLag = -1, maxLag = 12 } = {}) {
+    const evs = [...events].sort((a, b) => a.peakS - b.peakS);
+    const used = /* @__PURE__ */ new Set();
+    let cursor = 0;
+    return [...scanV].sort((a, b) => a.v - b.v).map((s) => {
+      let hit = null;
+      for (let k = cursor; k < evs.length; k++) {
+        const e = evs[k];
+        if (e.peakS < s.v + minLag) continue;
+        if (e.peakS > s.v + maxLag) break;
+        if (!used.has(e.id)) {
+          hit = e;
+          used.add(e.id);
+          cursor = k + 1;
+          break;
+        }
+      }
+      return { ...s, event: hit, lagS: hit ? hit.peakS - s.v : null };
+    });
+  }
+  function alignScans(scanV, events, { expLag = 1, maxDev = 4, skipCost = 4 } = {}) {
+    const S = [...scanV].sort((a, b) => a.v - b.v);
+    const E = [...events].sort((a, b) => a.peakS - b.peakS);
+    const n = S.length, m = E.length, INF = 1e18;
+    const dp = Array.from({ length: n + 1 }, () => new Float64Array(m + 1).fill(INF));
+    const bt = Array.from({ length: n + 1 }, () => new Int8Array(m + 1));
+    dp[0][0] = 0;
+    for (let i2 = 0; i2 <= n; i2++) {
+      for (let j2 = 0; j2 <= m; j2++) {
+        const c = dp[i2][j2];
+        if (c >= INF) continue;
+        if (i2 < n && c + skipCost < dp[i2 + 1][j2]) {
+          dp[i2 + 1][j2] = c + skipCost;
+          bt[i2 + 1][j2] = 1;
+        }
+        if (j2 < m && c < dp[i2][j2 + 1]) {
+          dp[i2][j2 + 1] = c;
+          bt[i2][j2 + 1] = 2;
+        }
+        if (i2 < n && j2 < m) {
+          const dev = Math.abs(E[j2].peakS - S[i2].v - expLag);
+          if (dev <= maxDev && c + dev < dp[i2 + 1][j2 + 1]) {
+            dp[i2 + 1][j2 + 1] = c + dev;
+            bt[i2 + 1][j2 + 1] = 3;
+          }
+        }
+      }
+    }
+    const out = S.map((s) => ({ ...s, event: null, lagS: null }));
+    let i = n, j = m;
+    while (i > 0 || j > 0) {
+      const b = bt[i][j];
+      if (b === 3) {
+        out[i - 1].event = E[j - 1];
+        out[i - 1].lagS = E[j - 1].peakS - S[i - 1].v;
+        i--;
+        j--;
+      } else if (b === 1) i--;
+      else j--;
+    }
+    return out;
+  }
+  function estimateOffset(scanV, events, { lo = -180, hi = 180, step = 0.5, window = 6 } = {}) {
+    const peaks = events.map((e) => e.peakS).sort((a, b) => a - b);
+    let best = null;
+    for (let off2 = lo; off2 <= hi; off2 += step) {
+      let hits = 0;
+      const lags = [];
+      for (const s of scanV) {
+        const v = s.v + off2;
+        const e = peaks.find((p) => p >= v && p <= v + window);
+        if (e !== void 0) {
+          hits++;
+          lags.push(e - v);
+        }
+      }
+      lags.sort((a, b) => a - b);
+      const med = lags.length ? lags[lags.length >> 1] : Infinity;
+      if (!best || hits > best.hits || hits === best.hits && med < best.medianLag) best = { offset: off2, hits, medianLag: med };
+    }
+    return { ...best, total: scanV.length };
   }
 
   // browser/entry.mjs

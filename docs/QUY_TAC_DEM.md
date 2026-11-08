@@ -30,3 +30,20 @@ Thứ tự kiện ("kiện thứ N") tính theo **số dư** sau các lượt +1
 3. **Người / bàn tay**: vị trí cổ tay người bắn hàng để biết kiện có đang trong tay người đó lúc qua miệng bao không.
 
 Trạng thái thử mô hình: xem `docs/MO_HINH.md`.
+
+## Chế độ FMS (đã làm, 2026-11-08)
+
+FMS lưu **giờ quét từng đơn** và **mã bao** → thứ tự đơn trong bao lấy từ giờ quét, không phụ thuộc AI:
+
+1. Nạp dữ liệu quét: dán bảng Excel/CSV vào trang Đếm, hoặc dán vào sheet **"FMS"** của spreadsheet kết quả rồi bấm "Lấy từ webapp" (`uiFmsBag`).
+   Cần 3 cột (tên cột tự nhận): mã đơn, giờ quét, mã bao. Giờ dạng `dd/mm/yyyy HH:MM:SS` hoặc `yyyy-mm-dd HH:MM:SS`.
+2. Bắn mã đơn → hiện **"kiện thứ N/T trong bao B"** theo giờ quét (đơn quét nhiều lần: lấy lần đầu, có cảnh báo).
+3. Đồng bộ giờ camera (gõ chữ đồng hồ 1 lần) → đổi giờ quét sang vị trí trong video.
+4. App quét chuyển động trong miệng bao quanh các lần quét của bao, **tự tính độ lệch giờ camera ↔ FMS** (±60s), rồi
+   **ghép tối ưu cả chuỗi** lần quét ↔ lượt bỏ kiện (`alignScans`, quy hoạch động giữ thứ tự; mọi lượt kể cả "người che" đều là ứng viên).
+5. Ảnh bằng chứng tại lượt bỏ kiện khớp với đơn; không khớp được thì lấy khung 2s sau giờ quét và ghi "cần kiểm tra".
+
+Thử với dữ liệu FMS **giả lập** (43 lần quét của người bắn hàng, đặt 2s trước lúc ném, đồng hồ FMS lệch 23s):
+tự tính lệch −21,8s, **ghép đúng 43/43** lượt. Chưa thử với dữ liệu FMS thật (độ trễ quét→bỏ vào bao thực tế có thể dao động hơn).
+
+Chưa xử lý: lấy kiện ra (−1) trong chế độ FMS – phụ thuộc FMS có ghi lần gỡ/hủy quét không.
