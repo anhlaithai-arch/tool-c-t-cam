@@ -26,6 +26,9 @@ Project: app AI đếm kiện hàng bỏ vào bao qua video camera kho, đối c
 
 Khi có bất đồng, Claude Code quyết định; nếu ảnh hưởng lớn thì hỏi người dùng.
 
+> **Từ 2026-11-08 (người dùng yêu cầu): Claude tự làm toàn bộ, kể cả giao diện; không gọi Codex.**
+> Phần Codex bên dưới giữ lại để dùng khi người dùng muốn bật lại.
+
 ## Luật bắt buộc (cả hai AI)
 
 1. **Không đọc `Images.html`** (không mở, không grep, không đưa vào ngữ cảnh).
