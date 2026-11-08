@@ -27,9 +27,10 @@ Khi có bất đồng, Claude Code quyết định; nếu ảnh hưởng lớn t
 2. **Claude sửa `Code.js`** trước → commit `[Claude] ...`.
 3. **Claude giao phần `Index.html` cho Codex** bằng lệnh không tương tác, ví dụ:
    ```bash
-   codex exec --sandbox workspace-write "<mô tả việc>"
+   codex exec -C "D:\New folder" --sandbox workspace-write -o codex-last.txt "<mô tả việc>"
    ```
-   (Cú pháp chính xác kiểm tra bằng `codex exec --help` trước mỗi phiên.)
+   (Đã kiểm tra với codex-cli 0.167.0; xem lại `codex exec --help` khi nâng cấp.
+   `-o` ghi câu trả lời cuối của Codex ra file để Claude đọc; `codex-last.txt` không commit.)
    Mô tả giao cho Codex phải có:
    - hàm/đoạn nào trong `Index.html` cần sửa, sửa gì;
    - tên hàm server mới/đã đổi trong `Code.js` để gọi `google.script.run` cho khớp;
