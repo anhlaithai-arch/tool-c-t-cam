@@ -49,6 +49,11 @@ def cmd_locate(a) -> int:
 
 
 def main(argv=None) -> int:
+    for stream in (sys.stdout, sys.stderr):  # console Windows mặc định cp1252, không in được tiếng Việt
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
     p = argparse.ArgumentParser(prog="python -m app")
     sub = p.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("sync", help="Đọc đồng hồ camera, tạo ánh xạ thời gian")
