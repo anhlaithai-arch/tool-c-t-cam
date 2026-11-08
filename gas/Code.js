@@ -7,6 +7,8 @@
  */
 
 var RESULT_SHEET_NAME = 'KetQua';
+// Spreadsheet người dùng chỉ định để lưu kết quả (2026-11-08).
+var DEFAULT_RESULT_SHEET_ID = '1AZWK0I4AULUeV5GziXlDQ4ucHemw_aelaAneK16sjJc';
 var RESULT_COLUMNS = [
   'id', 'orderCode', 'packingTime', 'sessionId', 'bagId', 'camera', 'videoFile',
   'videoTimeS', 'wallTime', 'orderIndex', 'total', 'sessionClosed', 'status',
@@ -23,10 +25,7 @@ function setup() {
   var p = PropertiesService.getScriptProperties();
   if (!p.getProperty('API_TOKEN')) p.setProperty('API_TOKEN', Utilities.getUuid().replace(/-/g, ''));
   if (!p.getProperty('VIEW_KEY')) p.setProperty('VIEW_KEY', Utilities.getUuid().slice(0, 8));
-  if (!p.getProperty('RESULT_SHEET_ID')) {
-    var ss = SpreadsheetApp.create('Ket qua dem kien');
-    p.setProperty('RESULT_SHEET_ID', ss.getId());
-  }
+  if (!p.getProperty('RESULT_SHEET_ID')) p.setProperty('RESULT_SHEET_ID', DEFAULT_RESULT_SHEET_ID);
   if (!p.getProperty('EVIDENCE_FOLDER_ID')) {
     p.setProperty('EVIDENCE_FOLDER_ID', DriveApp.createFolder('Bang chung dem kien').getId());
   }
