@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>Spike A – tua đúng khung</title>
+<style>
+  body { font: 14px/1.4 system-ui, sans-serif; margin: 16px; background: #fff; color: #111; }
+  video { max-width: 480px; display: block; margin: 8px 0; }
+  pre { background: #f3f3f3; padding: 8px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>Spike A: mở video local và tua đúng khung</h1>
+<p>Chọn file video (không upload) hoặc mở với <code>?src=...&amp;ref=...</code>. Cần file đối chiếu do
+<code>python -m app.tools.ref_frames</code> tạo.</p>
+<label>Video: <input type="file" id="file" accept="video/*"></label>
+<label>Đối chiếu JSON: <input type="file" id="refFile" accept=".json"></label>
+<button id="run">Chạy</button>
+<video id="v"></video>
+<pre id="out">Chưa chạy.</pre>
+<script type="module">
+import { openVideo, seek, grayThumb, meanAbsDiff } from '../../browser/video.mjs';
+
+const $ = (id) => document.getElementById(id);
+const log = (s) => { $('out').textContent += '\n' + s; };
+const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+
+async function run(videoSrc, ref) {
+  $('out').textContent = 'Đang chạy…';
+  const t0 = performance.now();
+  const h = await openVideo(videoSrc, $('v'));
+  log(`Mở video: ${h.width}x${h.height}, ${h.durationS.toFixed(3)}s, ${(performance.now() - t0).toFixed(0)}ms; rVFC=${typeof $('v').requestVideoFrameCallback === 'function'}`);
+  const rows = [];
+  for (const t of ref.targets) {
+    const target = (t.pts + t.ptsNext) / 2;  // giữa khung i và i+1
+    const s0 = performance.now();
+    const r = await seek(h.video, target);
+    const ms = performance.now() - s0;
+    const g = grayThumb(h.video, ref.w, ref.h);
+    const d = { prev: meanAbsDiff(g, b64(t.prev)), cur: meanAbsDiff(g, b64(t.cur)), next: meanAbsDiff(g, b64(t.next)) };
+    const best = Object.entries(d).sort((a, b) => a[1] - b[1])[0][0];
+    const sorted = Object.values(d).sort((a, b) => a - b);
+    const margin = sorted[1] - sorted[0];
+    // Phân biệt được khi khoảng cách tới khung kề đủ lớn so với sai khác giải mã
+    const decisive = margin > 0.3;
+    rows.push({ index: t.index, target, mediaTime: r.mediaTimeS, best, d, margin, decisive, ms, score: t.score });
+  }
+  const dec = rows.filter((r) => r.decisive);
+  const ok = dec.filter((r) => r.best === 'cur');
+  const off = dec.filter((r) => r.best !== 'cur');
+  const mtErr = rows.filter((r) => r.mediaTime !== null).map((r) => Math.abs(r.mediaTime - ref.targets.find((t) => t.index === r.index).pts));
+  const seekMs = rows.map((r) => r.ms).sort((a, b) => a - b);
+  const summary = {
+    total: rows.length,
+    decisive: dec.length,
+    exactFrame: ok.length,
+    offByOne: off.map((r) => ({ index: r.index, best: r.best, d: r.d })),
+    curDiffMedian: median(dec.map((r) => r.d.cur)),
+    mediaTimeMaxErrS: mtErr.length ? Math.max(...mtErr) : null,
+    seekMsMedian: seekMs[Math.floor(seekMs.length / 2)],
+    seekMsMax: seekMs[seekMs.length - 1],
+    totalS: ((performance.now() - t0) / 1000).toFixed(1),
+  };
+  log(JSON.stringify(summary, null, 2));
+  window.__result = { summary, rows };
+  h.close();
+}
+function median(a) { const s = [...a].sort((x, y) => x - y); return s.length ? s[Math.floor(s.length / 2)] : null; }
+
+$('run').onclick = async () => {
+  try {
+    const f = $('file').files[0], rf = $('refFile').files[0];
+    if (!f || !rf) throw new Error('Chọn cả video và file đối chiếu');
+    await run(f, JSON.parse(await rf.text()));
+  } catch (e) { log('LỖI: ' + e.message); }
+};
+const q = new URLSearchParams(location.search);
+if (q.get('src') && q.get('ref')) {
+  (async () => {
+    try {
+      const ref = await (await fetch(q.get('ref'))).json();
+      // fetch thành Blob để đi đúng đường File/ObjectURL như khi người dùng chọn file
+      const blob = await (await fetch(q.get('src'))).blob();
+      await run(blob, ref);
+    } catch (e) { log('LỖI: ' + e.message); window.__result = { error: e.message }; }
+  })();
+}
+</script>
+</body>
+</html>

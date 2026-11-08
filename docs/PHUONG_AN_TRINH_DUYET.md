@@ -186,3 +186,20 @@ Mỗi giai đoạn: **Claude làm logic và bàn giao API nhỏ đã chạy → 
 5. **Thứ tự làm:** Spike 1 (mở video local, tua đúng khung) chạy trước trên trình duyệt local, đối chiếu khung hình với Python; sau đó thử lại y hệt trong iframe GAS khi đã `clasp push`.
 6. Mô hình AI: ưu tiên mô hình giấy phép Apache-2.0/MIT (YOLOX, PaddleOCR); không dùng weights AGPL.
 7. Ba câu hỏi ở mục 7 chuyển cho người dùng; không chặn Spike 1.
+
+## Kết quả Spike 1 – trình duyệt local (2026-11-08)
+
+Video mẫu Camera 01, 1280×720, h264, 22.500 khung, PTS không đều tuyệt đối (fps trung bình 24,9976).
+Chuẩn: Python giải mã tuần tự, chọn 100 khung có chuyển động trải đều cả video (`app/tools/ref_frames.py`).
+Trình duyệt: Chrome 152 (trình duyệt tích hợp của Claude), mở video dạng Blob/ObjectURL như khi người dùng chọn file.
+
+| Chỉ số | Kết quả |
+|---|---|
+| Khung phân biệt được với khung kề (chênh > 0,3) | 78/100 (22 khung còn lại gần như đứng yên, không phân xử được bằng ảnh) |
+| Tua trúng đúng khung (trong 78 khung trên) | **78/78**, không lệch ±1 khung nào |
+| `requestVideoFrameCallback` trả `mediaTime` | 89/100; cả 89 đều **khớp đúng PTS** của Python |
+| Thời gian tua | trung vị 7,8 ms, tối đa 281 ms |
+| Tổng 100 lần tua | 5,1 giây |
+| WebGPU / WebCodecs | có / có; `crossOriginIsolated` = false (WASM đa luồng không dùng được) |
+
+Kết luận: **đạt** ở trình duyệt thường. Chưa làm: thử trong iframe GAS (cần `clasp push` + bước build bundle), mở–đóng liên tiếp 10 lần để xem rò bộ nhớ, 11/100 lần rVFC không trả `mediaTime` (đã có đường dự phòng bằng sự kiện `seeked`).
