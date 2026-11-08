@@ -6,20 +6,23 @@ Project: app AI đếm kiện hàng bỏ vào bao qua video camera kho, đối c
 
 | Phần | Thư mục | Chạy ở đâu |
 |---|---|---|
-| Xử lý video + AI (Python) | `app/` (trừ `app/web/`) | Máy local (Windows, RTX 4060) |
-| Giao diện app local | `app/web/` (HTML/CSS/JS tĩnh) | Trình duyệt, localhost |
-| Webapp tra thời gian packing | `gas/Code.js`, `gas/Index.html` | Google Apps Script (đẩy bằng `clasp`) |
+| Logic xử lý video/OCR/AI chạy trong trình duyệt | `browser/` (build thành `gas/LogicBundle.html`) | Trình duyệt người dùng |
+| Webapp: server + giao diện | `gas/` | Google Apps Script (đẩy bằng `clasp`, scriptId trong `gas/.clasp.json`) |
+| Thử nghiệm, dữ liệu đối chiếu, huấn luyện (Python) | `app/` | Máy dev (RTX 4060) |
 
-- Apps Script **không** xử lý video. Video chỉ xử lý local, không gửi ra dịch vụ ngoài.
-- App local gọi webapp GAS để lấy thời gian packing theo mã đơn.
+- Cả nhóm dùng qua một link webapp GAS. Video chọn từ máy người dùng, **không upload**; trình duyệt xử lý.
+- GAS chỉ xác thực, tra giờ packing, lưu kết quả (Sheet) và ảnh bằng chứng (Drive).
+- Chi tiết: `docs/PHUONG_AN_TRINH_DUYET.md`.
 - Thời gian: dùng đồng hồ in trên hình camera (OCR), **không** dùng tên file hay ngày tạo file làm giờ quay.
 
 ## Vai trò
 
 | Ai | Phụ trách | Được sửa |
 |---|---|---|
-| **Claude Code** — trưởng nhóm | Python trong `app/`, `gas/Code.js`, lập kế hoạch, chia việc, review, quyết định cuối cùng | Mọi file trừ phần của Codex |
-| **Codex** | Giao diện: `app/web/**`, `gas/Index.html` | **Chỉ** các file đó |
+| **Claude Code** — trưởng nhóm | `browser/**`, `scripts/**`, `tests/**`, `app/`, `gas/Code.js`; lập kế hoạch, chia việc, review, quyết định cuối cùng | Mọi file trừ phần của Codex |
+| **Codex** | Giao diện: `gas/Index.html`, `gas/UiStyles.html`, `gas/UiViews.html`, `gas/UiBindings.html` | **Chỉ** các file đó |
+
+`gas/LogicBundle.html` là file sinh tự động từ `browser/` (`node scripts/build-browser.mjs`), không ai sửa tay.
 
 Khi có bất đồng, Claude Code quyết định; nếu ảnh hưởng lớn thì hỏi người dùng.
 

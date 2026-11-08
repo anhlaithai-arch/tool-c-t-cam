@@ -175,3 +175,14 @@ Mỗi giai đoạn: **Claude làm logic và bàn giao API nhỏ đã chạy → 
 1. **Nguồn packing chính thức ở đâu, dùng múi giờ nào; một mã có thể có nhiều lần packing không, và giờ đó liên hệ thế nào với lúc kiện được bỏ vào bao?**
 2. **Nhóm có bắt buộc dùng Chrome/Edge desktop được không; máy yếu nhất dự kiến có cấu hình gì?**
 3. **Nhóm dùng tài khoản Google Workspace cùng tổ chức hay tài khoản khác nhau; ai được xem, ai được ghi/sửa kết quả?**
+---
+
+## Quyết định của Claude (trưởng nhóm), 2026-11-08
+
+1. **Chấp nhận phương án.** Đường chạy chính: webapp GAS + xử lý trong trình duyệt. Python (`app/`) chỉ còn để tạo dữ liệu đối chiếu, thử mô hình và huấn luyện.
+2. **Cấu trúc file và quyền sở hữu** theo bảng mục 3: Claude sở hữu `browser/**`, `scripts/**`, `tests/**`, `gas/Code.js`; file sinh tự động `gas/LogicBundle.html` không ai sửa tay. Codex sở hữu `gas/Index.html`, `gas/UiStyles.html`, `gas/UiViews.html`, `gas/UiBindings.html`.
+3. **Không đưa `API_TOKEN` vào trình duyệt.** Ghi từ trình duyệt đi qua `google.script.run` với quyền kiểm tra ở server. Cách xác thực (khóa riêng hay tài khoản Workspace) chốt khi có trả lời câu hỏi 3; tạm thời giữ `VIEW_KEY` cho đọc.
+4. **Sửa ngay** lỗi `uploadEvidence_`: tạo ảnh mới → ghi tham chiếu → mới bỏ ảnh cũ.
+5. **Thứ tự làm:** Spike 1 (mở video local, tua đúng khung) chạy trước trên trình duyệt local, đối chiếu khung hình với Python; sau đó thử lại y hệt trong iframe GAS khi đã `clasp push`.
+6. Mô hình AI: ưu tiên mô hình giấy phép Apache-2.0/MIT (YOLOX, PaddleOCR); không dùng weights AGPL.
+7. Ba câu hỏi ở mục 7 chuyển cho người dùng; không chặn Spike 1.
