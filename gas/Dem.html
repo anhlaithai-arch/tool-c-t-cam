@@ -115,7 +115,7 @@
       <textarea id="fms-text" rows="4" style="width:100%;font:13px monospace" placeholder="Mã vận đơn	Thời gian quét	Mã bao"></textarea>
       <div class="row" style="margin-top:6px">
         <button id="fms-load" type="button">Đọc bảng đã dán</button>
-        <input id="fms-file" type="file" accept=".csv,.txt,.tsv,text/csv,text/plain">
+        <input id="fms-file" type="file" multiple accept=".xlsx,.csv,.txt,.tsv,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
         <button id="fms-gas" type="button">Lấy từ webapp theo mã đơn</button>
       </div>
       <p id="fms-msg" class="msg"></p>
@@ -417,8 +417,8 @@
   }
 
   // ---------- FMS ----------
-  function setFms(table, source) {
-    const r = A.fms.loadScans(table);
+  function setFms(table, source) { setFmsResult(A.fms.loadScans(table), source); }
+  function setFmsResult(r, source) {
     st.fms = r.scans.length ? r : null;
     const bags = new Set(r.scans.map((x) => x.bag));
     const skipped = r.errors.length ? '\nBỏ qua: ' + r.errors.slice(0, 5).join('; ') + (r.errors.length > 5 ? '…' : '') : '';
@@ -427,7 +427,20 @@
     showFmsPos(); refreshButtons();
   }
   $('fms-load').addEventListener('click', () => setFms(A.fms.parseTable($('fms-text').value), 'Bảng đã dán'));
-  $('fms-file').addEventListener('change', async () => { const f = $('fms-file').files[0]; if (f) setFms(A.fms.parseTable(await f.text()), f.name); });
+  $('fms-file').addEventListener('change', async () => {
+    const files = [...$('fms-file').files]; if (!files.length) return;
+    msg('fms-msg', 'Đang đọc ' + files.length + ' file…');
+    const results = [];
+    for (const f of files) {
+      try {
+        if (/\.xlsx$/i.test(f.name)) {
+          const sheets = await A.xlsx.readXlsx(await f.arrayBuffer(), A.xlsx.browserInflateRaw);
+          for (const sh of sheets) { const r = A.fms.loadScans(sh.rows); if (r.scans.length) results.push(r); else if (sheets.length === 1) results.push({ scans: [], errors: [f.name + ': ' + r.errors.join('; ')] }); }
+        } else results.push(A.fms.loadScans(A.fms.parseTable(await f.text())));
+      } catch (e) { results.push({ scans: [], errors: [f.name + ': ' + (e && e.message || e)] }); }
+    }
+    setFmsResult(A.fms.mergeScans(results), files.length === 1 ? files[0].name : files.length + ' file');
+  });
   $('fms-gas').addEventListener('click', async () => {
     const order = $('order').value.trim(); if (!order) { msg('fms-msg', 'Bắn mã đơn trước.', 'err'); return; }
     const key = $('key').value.trim(); store(KEY_STORE, key);
@@ -447,6 +460,8 @@
     const notes = [];
     if (p.duplicates) notes.push(`đơn được quét ${p.duplicates + 1} lần – lấy lần đầu`);
     if (p.otherBags.length) notes.push('cũng có trong bao ' + p.otherBags.join(', '));
+    const mineScan = st.fms.scans.find((x) => x.order === p.order && x.bag === p.bag);
+    if (mineScan && mineScan.journey && !/^forward$/i.test(mineScan.journey)) notes.push('hành trình ' + mineScan.journey);
     if (notes.length) box.append(Object.assign(document.createElement('p'), { className: 'msg err', textContent: 'Lưu ý: ' + notes.join('; ') }));
     const ol = document.createElement('ol'); ol.style.cssText = 'max-height:160px;overflow:auto;margin:6px 0;padding-left:28px;font-size:13px';
     for (const s of p.bagScans) {

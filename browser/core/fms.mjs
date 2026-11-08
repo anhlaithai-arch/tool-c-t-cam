@@ -27,10 +27,12 @@ export function parseTable(text) {
 }
 
 const COL_HINTS = {
-  order: ['ma don', 'ma van don', 'van don', 'order', 'tracking', 'awb', 'shipment', 'ma kien', 'parcel'],
-  time: ['thoi gian', 'gio quet', 'scan time', 'time', 'ngay gio', 'packing', 'dong goi', 'created', 'timestamp'],
-  bag: ['ma bao', 'bao', 'bag', 'tui', 'sack', 'container'],
+  order: ['ma don', 'ma van don', 'van don', 'lm tracking', 'tracking', 'order', 'awb', 'shipment', 'ma kien', 'parcel'],
+  time: ['gio quet', 'scan time', 'thoi gian', 'time', 'ngay gio', 'packing', 'dong goi', 'created', 'timestamp'],
+  bag: ['ma bao', 'bao', 'bag', 'tui', 'sack', 'container', 'to number', 'ma to'],
 };
+// Khóa ở phần đầu phiếu TO (dạng "khóa | giá trị") cho biết mã bao/phiếu
+const META_BAG_KEYS = ['to number', 'ma to', 'ma bao', 'bag', 'bag id', 'so phieu'];
 
 /** Đoán cột từ tiêu đề. Trả {order, time, bag} là chỉ số cột (hoặc -1). */
 export function detectColumns(header) {
@@ -84,23 +86,52 @@ const normCode = (c) => String(c ?? '').trim().toUpperCase();
  * Tạo bộ dữ liệu FMS từ bảng (hàng đầu là tiêu đề). cols: ghi đè cột tự đoán.
  * Trả {scans: [{order, time, bag, row}], errors: [...], cols}
  */
-export function loadScans(table, { cols = null, dayFirst = true } = {}) {
-  if (!table.length) return { scans: [], errors: ['Bảng trống'], cols: null };
-  const c = cols || detectColumns(table[0]);
+export function loadScans(table, { cols = null, dayFirst = true, bag: fallbackBag = '' } = {}) {
+  if (!table.length) return { scans: [], errors: ['Bảng trống'], cols: null, meta: {} };
+  // Tìm hàng tiêu đề: hàng đầu tiên có cả cột mã đơn và cột giờ quét (file phiếu TO có phần thông tin phía trên)
+  let h = 0, c = cols;
+  if (!c) {
+    h = table.findIndex((r) => { const d = detectColumns(r.map(String)); return d.order >= 0 && d.time >= 0 && d.order !== d.time; });
+    if (h < 0) h = 0;
+    c = detectColumns(table[h].map(String));
+  }
+  // Phần thông tin phía trên hàng tiêu đề: "TO Number | TO2026…", "TO Created Time | …"
+  const meta = {};
+  for (const r of table.slice(0, h)) {
+    const k = strip(r[0]);
+    if (k && r[1] !== undefined && r[1] !== '') meta[k] = r[1];
+  }
+  const metaBag = normCode(META_BAG_KEYS.map((k) => meta[k]).find((v) => v !== undefined && v !== '') ?? fallbackBag);
   const errors = [];
   if (c.order < 0) errors.push('Không thấy cột mã đơn');
   if (c.time < 0) errors.push('Không thấy cột giờ quét');
-  if (c.bag < 0) errors.push('Không thấy cột mã bao');
-  if (errors.length) return { scans: [], errors, cols: c };
+  if (c.bag < 0 && !metaBag) errors.push('Không thấy cột mã bao (hoặc "TO Number" ở đầu phiếu)');
+  if (errors.length) return { scans: [], errors, cols: c, meta };
+  const journeyCol = table[h].findIndex((x) => /journey|loai hanh trinh/.test(strip(x)));
   const scans = [];
-  table.slice(1).forEach((r, i) => {
+  table.slice(h + 1).forEach((r, i) => {
     const order = normCode(r[c.order]);
     if (!order) return;
     const time = parseTime(r[c.time], dayFirst);
-    if (time === null) { errors.push(`Dòng ${i + 2}: không đọc được giờ "${r[c.time]}"`); return; }
-    scans.push({ order, time, bag: normCode(r[c.bag]), row: i + 2 });
+    if (time === null) { errors.push(`Dòng ${h + i + 2}: không đọc được giờ "${r[c.time]}"`); return; }
+    const s = { order, time, bag: c.bag >= 0 ? normCode(r[c.bag]) : metaBag, row: h + i + 2 };
+    if (journeyCol >= 0 && r[journeyCol]) s.journey = String(r[journeyCol]).trim();
+    scans.push(s);
   });
-  return { scans, errors, cols: c };
+  return { scans, errors, cols: c, meta, bag: metaBag || null };
+}
+
+/** Gộp nhiều kết quả loadScans (nhiều file TO). */
+export function mergeScans(results) {
+  const seen = new Set(), scans = [], errors = [];
+  for (const r of results) {
+    errors.push(...r.errors);
+    for (const s of r.scans) {
+      const k = `${s.bag}|${s.order}|${s.time}`;
+      if (!seen.has(k)) { seen.add(k); scans.push(s); }
+    }
+  }
+  return { scans, errors };
 }
 
 /**

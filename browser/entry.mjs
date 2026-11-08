@@ -6,4 +6,5 @@ export * as clock from './core/clock.mjs';
 export * as motion from './core/motion.mjs';
 export * as sync from './core/sync.mjs';
 export * as fms from './core/fms.mjs';
+export * as xlsx from './core/xlsx.mjs';
 export const version = '0.1.0';

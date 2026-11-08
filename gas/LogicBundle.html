@@ -29,7 +29,8 @@ var CountingApp = (() => {
     motion: () => motion_exports,
     sync: () => sync_exports,
     version: () => version,
-    video: () => video_exports
+    video: () => video_exports,
+    xlsx: () => xlsx_exports
   });
 
   // browser/video.mjs
@@ -965,6 +966,7 @@ var CountingApp = (() => {
     estimateOffset: () => estimateOffset,
     loadScans: () => loadScans,
     matchScansToEvents: () => matchScansToEvents,
+    mergeScans: () => mergeScans,
     orderPosition: () => orderPosition,
     parseTable: () => parseTable,
     parseTime: () => parseTime
@@ -997,10 +999,11 @@ var CountingApp = (() => {
     });
   }
   var COL_HINTS = {
-    order: ["ma don", "ma van don", "van don", "order", "tracking", "awb", "shipment", "ma kien", "parcel"],
-    time: ["thoi gian", "gio quet", "scan time", "time", "ngay gio", "packing", "dong goi", "created", "timestamp"],
-    bag: ["ma bao", "bao", "bag", "tui", "sack", "container"]
+    order: ["ma don", "ma van don", "van don", "lm tracking", "tracking", "order", "awb", "shipment", "ma kien", "parcel"],
+    time: ["gio quet", "scan time", "thoi gian", "time", "ngay gio", "packing", "dong goi", "created", "timestamp"],
+    bag: ["ma bao", "bao", "bag", "tui", "sack", "container", "to number", "ma to"]
   };
+  var META_BAG_KEYS = ["to number", "ma to", "ma bao", "bag", "bag id", "so phieu"];
   function detectColumns(header) {
     const h = header.map(strip);
     const pick = (hints, exclude = []) => {
@@ -1041,26 +1044,57 @@ var CountingApp = (() => {
     return null;
   }
   var normCode = (c) => String(c ?? "").trim().toUpperCase();
-  function loadScans(table, { cols = null, dayFirst = true } = {}) {
-    if (!table.length) return { scans: [], errors: ["Bảng trống"], cols: null };
-    const c = cols || detectColumns(table[0]);
+  function loadScans(table, { cols = null, dayFirst = true, bag: fallbackBag = "" } = {}) {
+    if (!table.length) return { scans: [], errors: ["Bảng trống"], cols: null, meta: {} };
+    let h = 0, c = cols;
+    if (!c) {
+      h = table.findIndex((r) => {
+        const d = detectColumns(r.map(String));
+        return d.order >= 0 && d.time >= 0 && d.order !== d.time;
+      });
+      if (h < 0) h = 0;
+      c = detectColumns(table[h].map(String));
+    }
+    const meta = {};
+    for (const r of table.slice(0, h)) {
+      const k = strip(r[0]);
+      if (k && r[1] !== void 0 && r[1] !== "") meta[k] = r[1];
+    }
+    const metaBag = normCode(META_BAG_KEYS.map((k) => meta[k]).find((v) => v !== void 0 && v !== "") ?? fallbackBag);
     const errors = [];
     if (c.order < 0) errors.push("Không thấy cột mã đơn");
     if (c.time < 0) errors.push("Không thấy cột giờ quét");
-    if (c.bag < 0) errors.push("Không thấy cột mã bao");
-    if (errors.length) return { scans: [], errors, cols: c };
+    if (c.bag < 0 && !metaBag) errors.push('Không thấy cột mã bao (hoặc "TO Number" ở đầu phiếu)');
+    if (errors.length) return { scans: [], errors, cols: c, meta };
+    const journeyCol = table[h].findIndex((x) => /journey|loai hanh trinh/.test(strip(x)));
     const scans = [];
-    table.slice(1).forEach((r, i) => {
+    table.slice(h + 1).forEach((r, i) => {
       const order = normCode(r[c.order]);
       if (!order) return;
       const time = parseTime(r[c.time], dayFirst);
       if (time === null) {
-        errors.push(`Dòng ${i + 2}: không đọc được giờ "${r[c.time]}"`);
+        errors.push(`Dòng ${h + i + 2}: không đọc được giờ "${r[c.time]}"`);
         return;
       }
-      scans.push({ order, time, bag: normCode(r[c.bag]), row: i + 2 });
+      const s = { order, time, bag: c.bag >= 0 ? normCode(r[c.bag]) : metaBag, row: h + i + 2 };
+      if (journeyCol >= 0 && r[journeyCol]) s.journey = String(r[journeyCol]).trim();
+      scans.push(s);
     });
-    return { scans, errors, cols: c };
+    return { scans, errors, cols: c, meta, bag: metaBag || null };
+  }
+  function mergeScans(results) {
+    const seen = /* @__PURE__ */ new Set(), scans = [], errors = [];
+    for (const r of results) {
+      errors.push(...r.errors);
+      for (const s of r.scans) {
+        const k = `${s.bag}|${s.order}|${s.time}`;
+        if (!seen.has(k)) {
+          seen.add(k);
+          scans.push(s);
+        }
+      }
+    }
+    return { scans, errors };
   }
   function orderPosition(scans, orderCode) {
     const code = normCode(orderCode);
@@ -1171,6 +1205,115 @@ var CountingApp = (() => {
       if (!best || hits > best.hits || hits === best.hits && med < best.medianLag) best = { offset: off2, hits, medianLag: med };
     }
     return { ...best, total: scanV.length };
+  }
+
+  // browser/core/xlsx.mjs
+  var xlsx_exports = {};
+  __export(xlsx_exports, {
+    browserInflateRaw: () => browserInflateRaw,
+    readXlsx: () => readXlsx
+  });
+  var td = new TextDecoder("utf-8");
+  function readZip(buf) {
+    const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+    let eocd = -1;
+    for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--) {
+      if (dv.getUint32(i, true) === 101010256) {
+        eocd = i;
+        break;
+      }
+    }
+    if (eocd < 0) throw new Error("Không phải file .xlsx hợp lệ (thiếu mục lục ZIP)");
+    const n = dv.getUint16(eocd + 10, true);
+    let p = dv.getUint32(eocd + 16, true);
+    const entries = {};
+    for (let k = 0; k < n; k++) {
+      if (dv.getUint32(p, true) !== 33639248) throw new Error("Mục lục ZIP hỏng");
+      const method = dv.getUint16(p + 10, true);
+      const csize = dv.getUint32(p + 20, true);
+      const nameLen = dv.getUint16(p + 28, true), extraLen = dv.getUint16(p + 30, true), cmtLen = dv.getUint16(p + 32, true);
+      const local = dv.getUint32(p + 42, true);
+      const name = td.decode(buf.subarray(p + 46, p + 46 + nameLen));
+      const lNameLen = dv.getUint16(local + 26, true), lExtraLen = dv.getUint16(local + 28, true);
+      const start = local + 30 + lNameLen + lExtraLen;
+      entries[name] = { method, data: buf.subarray(start, start + csize) };
+      p += 46 + nameLen + extraLen + cmtLen;
+    }
+    return entries;
+  }
+  var decodeXml = (s) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(+d)).replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16))).replace(/&amp;/g, "&");
+  function colIndex(ref) {
+    const m = /^([A-Z]+)/.exec(ref);
+    let n = 0;
+    for (const ch of m[1]) n = n * 26 + (ch.charCodeAt(0) - 64);
+    return n - 1;
+  }
+  function textOf(xml) {
+    let out = "";
+    for (const m of xml.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)) out += decodeXml(m[1]);
+    return out;
+  }
+  async function readXlsx(input, inflateRaw) {
+    const buf = input instanceof Uint8Array ? input : new Uint8Array(input);
+    const zip = readZip(buf);
+    const get = async (name) => {
+      const e = zip[name];
+      if (!e) return null;
+      const raw = e.method === 0 ? e.data : await inflateRaw(e.data);
+      return td.decode(raw);
+    };
+    const shared = [];
+    const ss = await get("xl/sharedStrings.xml");
+    if (ss) for (const m of ss.matchAll(/<si>([\s\S]*?)<\/si>/g)) shared.push(textOf(m[1]));
+    const wb = await get("xl/workbook.xml") || "";
+    const rels = await get("xl/_rels/workbook.xml.rels") || "";
+    const relMap = {};
+    for (const m of rels.matchAll(/<Relationship\b[^>]*>/g)) {
+      const id = /Id="([^"]+)"/.exec(m[0])?.[1], target = /Target="([^"]+)"/.exec(m[0])?.[1];
+      if (id && target) relMap[id] = target.replace(/^\/?xl\//, "").replace(/^\//, "");
+    }
+    const sheets = [];
+    for (const m of wb.matchAll(/<sheet\b[^>]*>/g)) {
+      const name = decodeXml(/name="([^"]*)"/.exec(m[0])?.[1] || "");
+      const rid = /r:id="([^"]+)"/.exec(m[0])?.[1];
+      sheets.push({ name, path: "xl/" + (relMap[rid] || `worksheets/sheet${sheets.length + 1}.xml`) });
+    }
+    if (!sheets.length) sheets.push({ name: "Sheet1", path: "xl/worksheets/sheet1.xml" });
+    const out = [];
+    for (const sh of sheets) {
+      const xml = await get(sh.path);
+      if (!xml) continue;
+      const rows = [];
+      for (const rm of xml.matchAll(/<row\b([^>]*)>([\s\S]*?)<\/row>|<row\b([^>]*)\/>/g)) {
+        const attrs = rm[1] || rm[3] || "";
+        const rIdx = +(/\br="(\d+)"/.exec(attrs)?.[1] || rows.length + 1) - 1;
+        const row = [];
+        for (const cm of (rm[2] || "").matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+          const a = cm[1], body = cm[2] || "";
+          const ref = /\br="([A-Z]+\d+)"/.exec(a)?.[1];
+          const ci = ref ? colIndex(ref) : row.length;
+          const t = /\bt="([^"]+)"/.exec(a)?.[1];
+          const v = /<v>([\s\S]*?)<\/v>/.exec(body)?.[1];
+          let val = "";
+          if (t === "s") val = shared[+v] ?? "";
+          else if (t === "inlineStr") val = textOf(body);
+          else if (t === "b") val = v === "1";
+          else if (t === "str" || t === "e") val = v != null ? decodeXml(v) : "";
+          else if (v != null) val = isFinite(Number(v)) ? Number(v) : decodeXml(v);
+          while (row.length < ci) row.push("");
+          row[ci] = val;
+        }
+        while (rows.length < rIdx) rows.push([]);
+        rows[rIdx] = row;
+      }
+      out.push({ name: sh.name, rows: rows.map((r) => r || []) });
+    }
+    return out;
+  }
+  async function browserInflateRaw(data) {
+    const ds = new DecompressionStream("deflate-raw");
+    const stream = new Blob([data]).stream().pipeThrough(ds);
+    return new Uint8Array(await new Response(stream).arrayBuffer());
   }
 
   // browser/entry.mjs
