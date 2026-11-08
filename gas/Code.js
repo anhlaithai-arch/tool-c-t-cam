@@ -222,13 +222,24 @@ function fmsCookie_() {
 }
 
 function fmsRequest_(path, cookie) {
-  return { url: FMS_BASE + path, headers: { Cookie: cookie, Accept: 'application/json' }, muteHttpExceptions: true };
+  // Header giống trình duyệt đang mở trang FMS: một số API kiểm tra Referer/Origin
+  return { url: FMS_BASE + path, muteHttpExceptions: true, followRedirects: false, headers: {
+    Cookie: cookie, Accept: 'application/json, text/plain, */*', Referer: FMS_BASE + '/', Origin: FMS_BASE,
+    'X-Requested-With': 'XMLHttpRequest' } };
+}
+
+/** Đoạn đầu nội dung trả về (để biết FMS từ chối vì gì); không chứa cookie. */
+function fmsBodySnippet_(res) {
+  try { return String(res.getContentText() || '').replace(/\s+/g, ' ').slice(0, 300); } catch (e) { return ''; }
 }
 
 function fmsParse_(res, what) {
   var code = res.getResponseCode();
-  if (code === 401 || code === 403) throw new Error('FMS từ chối (' + code + ') – cookie hết hạn? Cập nhật G1/G2 tab "Phân quyền".');
-  if (code !== 200) throw new Error('FMS lỗi HTTP ' + code + ' khi ' + what);
+  if (code === 401 || code === 403) {
+    throw new Error('FMS từ chối (' + code + ') khi ' + what + '. FMS trả: ' + (fmsBodySnippet_(res) || '(rỗng)') +
+      ' — chạy fmsDiagnose() trong trình soạn thảo để so với API admin đang dùng được.');
+  }
+  if (code !== 200) throw new Error('FMS lỗi HTTP ' + code + ' khi ' + what + ': ' + fmsBodySnippet_(res));
   var j = JSON.parse(res.getContentText());
   if (j.retcode !== 0 && j.retcode !== undefined) throw new Error('FMS báo lỗi khi ' + what + ': ' + (j.message || j.retcode));
   return j.data;
@@ -608,3 +619,29 @@ function fromRow_(vals) {
   rec.sessionClosed = rec.sessionClosed === true || rec.sessionClosed === 'TRUE' || rec.sessionClosed === 'true';
   return rec;
 }
+
+/**
+ * Chẩn đoán FMS: chạy trong trình soạn thảo Apps Script (Run > fmsDiagnose), xem Execution log.
+ * Gọi 3 API bằng cùng cookie và in mã HTTP + đoạn đầu nội dung (KHÔNG in cookie):
+ *  1. API admin mà script cũ của người dùng đang chạy được
+ *  2. tracking_info của một đơn
+ *  3. danh sách đơn trong TO
+ */
+function fmsDiagnose(orderCode, toNumber) {
+  var cookie = fmsCookie_();
+  var code = orderCode || 'SPXVN06309459535B', to = toNumber || 'TO20261104FW96R';
+  var paths = [
+    ['admin tracking/list (script cũ)', '/api/admin/order/soc/tracking/list?order_status=1&count=1&page_no=1&station_type=2'],
+    ['tracking_info', '/api/fleet_order/order/detail/tracking_info?shipment_id=' + encodeURIComponent(code)],
+    ['danh sách TO', '/api/in-station/general_to/outbound/order/search?to_number=' + encodeURIComponent(to) + '&pageno=1&count=10'],
+  ];
+  var out = paths.map(function (p) {
+    var res = UrlFetchApp.fetch(FMS_BASE + p[1], fmsRequest_(p[1], cookie));
+    var line = p[0] + ': HTTP ' + res.getResponseCode() + ' | ' + fmsBodySnippet_(res);
+    Logger.log(line);
+    return line;
+  });
+  Logger.log('Cookie gồm các khóa: ' + cookie.split(';').map(function (x) { return x.split('=')[0].trim(); }).join(', '));
+  return out;
+}
+
