@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Đếm kiện · Tra cứu kho</title>
+  <style>
+    :root { color-scheme: light; --ink:#182b40; --muted:#526477; --line:#ccd6e0; --blue:#174fb4; --paper:#fff; --bg:#f2f5f8; }
+    * { box-sizing:border-box; }
+    [hidden] { display:none !important; }
+    body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+    main { max-width:1200px; margin:auto; padding:24px; }
+    h1,h2,h3,p { margin:0 0 12px; }
+    h1 { font-size:26px; } h2 { font-size:21px; min-width:0; overflow-wrap:anywhere; } h3 { font-size:17px; }
+    button,input { font:inherit; }
+    button { min-height:46px; border:1px solid var(--line); border-radius:8px; padding:10px 16px; background:var(--paper); color:var(--ink); cursor:pointer; }
+    button:hover { background:#eaf0f8; } button:disabled { opacity:.65; cursor:wait; }
+    :focus-visible { outline:3px solid var(--blue); outline-offset:3px; }
+    input { width:100%; min-width:0; min-height:52px; padding:12px; border:1px solid #8395a8; border-radius:8px; background:white; color:var(--ink); }
+    label { display:block; font-weight:650; margin-bottom:8px; }
+    .primary { background:var(--blue); color:white; border-color:var(--blue); } .primary:hover { background:#113d8c; }
+    .top,.section-top { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:20px; }
+    .eyebrow { color:var(--muted); font-size:13px; font-weight:700; letter-spacing:.09em; margin-bottom:4px; }
+    .panel { background:var(--paper); border:1px solid var(--line); border-radius:12px; padding:22px; margin-bottom:20px; min-width:0; }
+    #login { max-width:460px; margin:10vh auto 0; }
+    #login button { width:100%; margin-top:16px; }
+    .muted,.hint { color:var(--muted); } .hint { font-size:14px; margin:8px 0 0; }
+    .search-controls { display:flex; gap:10px; align-items:stretch; } #query { flex:1; font-size:22px; font-weight:600; }
+    .message { margin:12px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; }
+    .message:empty { display:none; } .error { color:#a32424; }
+    .packing { border-left:4px solid var(--blue); background:#eff5ff; padding:12px 16px; margin-top:18px; overflow-wrap:anywhere; }
+    .packing p { margin:0; } .packing strong { display:block; font-size:14px; }
+    .workspace { display:grid; grid-template-columns:minmax(0,1fr); gap:20px; }
+    .section-top { margin-bottom:12px; flex-wrap:wrap; } .section-top h2 { margin:0; }
+    #results { list-style:none; padding:0; margin:16px 0 0; display:grid; gap:10px; }
+    .result { width:100%; text-align:left; padding:16px; display:grid; gap:8px; overflow-wrap:anywhere; }
+    .result[aria-pressed="true"] { border-color:var(--blue); background:#eff5ff; box-shadow:inset 3px 0 var(--blue); }
+    .result-head { display:flex; justify-content:space-between; align-items:start; gap:10px; flex-wrap:wrap; }
+    .order { font-weight:750; font-size:19px; } .ordinal { font-weight:650; }
+    .meta { display:grid; gap:4px; color:var(--muted); font-size:14px; }
+    .badge { display:inline-block; border-radius:5px; padding:3px 8px; font-size:13px; font-weight:700; background:#edf0f3; }
+    .confirmed { background:#e3f5e9; color:#176236; } .review { background:#fff0dc; color:#894000; } .corrected { background:#e7efff; color:#1b50a5; }
+    dl { display:grid; grid-template-columns:minmax(100px,1fr) minmax(0,2fr); gap:8px 16px; margin:16px 0 24px; }
+    dt { color:var(--muted); } dd { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
+    .image-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr)); gap:12px; margin-bottom:20px; }
+    .image-button { display:block; width:100%; padding:8px; text-align:left; }
+    .image-button img { display:block; width:100%; height:180px; object-fit:contain; background:var(--bg); margin-bottom:6px; }
+    .image-error { background:var(--bg); padding:16px; border-radius:8px; overflow-wrap:anywhere; }
+    dialog { width:min(1100px,calc(100% - 24px)); max-height:calc(100dvh - 24px); border:0; border-radius:12px; padding:16px; color:var(--ink); }
+    dialog::backdrop { background:rgba(10,20,35,.8); }
+    dialog .section-top { position:sticky; top:0; background:white; }
+    #large-image { display:block; max-width:100%; max-height:75dvh; object-fit:contain; margin:auto; }
+    @media(min-width:1000px) { .workspace.has-detail { grid-template-columns:minmax(0,1fr) minmax(0,1.2fr); } }
+    @media(max-width:600px) { main { padding:16px 12px; } .panel { padding:16px; } h1 { font-size:22px; } .top { align-items:start; } .top button { flex-shrink:0; padding:10px; } .search-controls { flex-wrap:wrap; } #query { flex-basis:100%; } .search-controls button { flex:1; } dl { grid-template-columns:1fr; gap:2px; } dd { margin-bottom:10px; } #login { margin-top:5vh; } }
+  </style>
+</head>
+<body>
+<main>
+  <header class="top">
+    <div><p class="eyebrow">TRA CỨU KHO</p><h1>Đếm kiện hàng</h1></div>
+    <button id="change-key" type="button" hidden>Đổi khóa</button>
+  </header>
+  <section id="login" class="panel" aria-labelledby="login-title">
+    <h2 id="login-title">Nhập khóa xem</h2>
+    <p class="muted">Tra cứu kết quả đếm và ảnh bằng chứng của đơn hàng.</p>
+    <form id="key-form">
+      <label for="view-key">Khóa xem</label>
+      <input id="view-key" type="password" autocomplete="current-password" required autofocus aria-describedby="key-message">
+      <button id="unlock" class="primary" type="submit">Vào tra cứu</button>
+    </form>
+    <p id="key-message" class="message" role="status" aria-live="polite"></p>
+  </section>
+  <div id="app" hidden>
+    <section class="panel" aria-labelledby="scan-title">
+      <h2 id="scan-title">Bắn mã đơn để tra cứu</h2>
+      <form id="search-form">
+        <label for="query">Mã đơn hàng</label>
+        <div class="search-controls">
+          <input id="query" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Quét hoặc nhập mã đơn" aria-describedby="scan-hint">
+          <button class="primary" type="submit">Tìm kiếm</button>
+          <button id="latest" type="button">Mới nhất</button>
+        </div>
+        <p id="scan-hint" class="hint">Nhấn Enter để tìm. Để trống để xem 50 kết quả mới nhất.</p>
+      </form>
+      <div class="packing"><strong>GIỜ PACKING</strong><p id="packing-message" class="message" role="status" aria-live="polite"></p></div>
+    </section>
+    <div id="workspace" class="workspace">
+      <section class="panel" aria-labelledby="results-title">
+        <div class="section-top"><h2 id="results-title">Kết quả đếm</h2></div>
+        <p id="search-message" class="message" role="status" aria-live="polite"></p>
+        <ul id="results" aria-label="Danh sách kết quả đếm"></ul>
+      </section>
+      <section id="detail" class="panel" hidden aria-labelledby="detail-title">
+        <div class="section-top"><h2 id="detail-title" tabindex="-1">Chi tiết kết quả</h2><button id="close-detail" type="button">Đóng chi tiết</button></div>
+        <p id="detail-message" class="message" role="status" aria-live="polite"></p>
+        <div id="detail-body"></div>
+      </section>
+    </div>
+  </div>
+</main>
+<dialog id="viewer" aria-labelledby="viewer-title">
+  <div class="section-top"><h2 id="viewer-title">Ảnh bằng chứng</h2><button id="close-viewer" type="button">Đóng ảnh (Esc)</button></div>
+  <img id="large-image" alt="">
+  <p id="viewer-message" class="message error" role="status"></p>
+</dialog>
+<script>
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const storageKey = 'dem-kien.view-key';
+  let viewKey = '', authVersion = 0, searchVersion = 0, detailVersion = 0;
+  let selectedRow = null, imageTrigger = null;
+  const statuses = {
+    xac_nhan: ['Đã xác nhận', 'confirmed'],
+    can_kiem_tra: ['Cần kiểm tra', 'review'],
+    da_sua: ['Đã sửa', 'corrected']
+  };
+  const imageKinds = [['full', 'Ảnh nguyên khung'], ['marked', 'Ảnh đánh dấu'], ['crop', 'Ảnh cắt kiện']];
+  function node(tag, text, className) {
+    const element = document.createElement(tag);
+    if (text !== undefined) element.textContent = text;
+    if (className) element.className = className;
+    return element;
+  }
+  function value(v) { return v === null || v === undefined || v === '' ? '—' : String(v); }
+  function time(v) { return value(v).replace('T', ' '); } // Preserve camera/server clock; no browser timezone conversion.
+  function videoTime(v) {
+    if (v === '' || v === null || v === undefined || !Number.isFinite(Number(v)) || Number(v) < 0) return '—';
+    const ticks = Math.round(Number(v) * 10);
+    return String(Math.floor(ticks / 600)).padStart(2, '0') + ':' + (ticks % 600 / 10).toFixed(1).padStart(4, '0');
+  }
+  function ordinal(r) {
+    return r.sessionClosed === true
+      ? 'Kiện thứ ' + value(r.orderIndex) + '/' + value(r.total)
+      : 'Kiện thứ ' + value(r.orderIndex) + ' / ' + value(r.total) + ' kiện đã ghi nhận — phiên chưa chốt';
+  }
+  function status(r) { return statuses[r.status] || ['Chưa rõ trạng thái: ' + value(r.status), '']; }
+  function message(id, text, error) { $(id).textContent = text; $(id).classList.toggle('error', Boolean(error)); }
+  function storedKey() { try { return localStorage.getItem(storageKey) || ''; } catch (_) { return ''; } }
+  function saveKey(key) { try { if (key) localStorage.setItem(storageKey, key); else localStorage.removeItem(storageKey); } catch (_) { /* Storage may be disabled in the HtmlService iframe. */ } }
+  function callServer(method, args, success, failure) {
+    try {
+      if (!window.google || !google.script || !google.script.run) throw new Error('Không kết nối được Apps Script. Hãy mở bằng đường dẫn webapp.');
+      const runner = google.script.run.withSuccessHandler(success).withFailureHandler(failure);
+      runner[method](...args);
+    } catch (error) { failure(error); }
+  }
+  function errorText(error) { return String(error && error.message || error || 'Lỗi không xác định'); }
+  function handleError(error, target, prefix) {
+    const text = errorText(error);
+    if (text.includes('Sai khóa xem')) { showLogin('Sai khóa xem. Vui lòng nhập lại khóa.'); return; }
+    message(target, prefix + text, true);
+  }
+  function closeViewer() { if ($('viewer').open) $('viewer').close(); }
+  function clearDetail(restoreFocus) {
+    ++detailVersion;
+    closeViewer();
+    $('detail').hidden = true;
+    $('detail-body').replaceChildren();
+    $('detail').setAttribute('aria-busy', 'false');
+    $('workspace').classList.remove('has-detail');
+    if (selectedRow) { selectedRow.setAttribute('aria-pressed', 'false'); if (restoreFocus && selectedRow.isConnected) selectedRow.focus(); }
+    selectedRow = null;
+  }
+  function showLogin(text) {
+    ++authVersion; ++searchVersion;
+    viewKey = '';
+    saveKey('');
+    clearDetail(false);
+    $('results').replaceChildren();
+    $('query').value = '';
+    ['packing-message', 'search-message', 'detail-message'].forEach(id => message(id, ''));
+    $('app').hidden = true;
+    $('change-key').hidden = true;
+    $('login').hidden = false;
+    $('unlock').disabled = false;
+    $('view-key').value = '';
+    message('key-message', text || '', Boolean(text));
+    $('view-key').focus();
+  }
+  function checkKey(candidate) {
+    const version = ++authVersion;
+    $('unlock').disabled = true;
+    message('key-message', 'Đang kiểm tra khóa…');
+    callServer('uiCheckKey', [candidate], valid => {
+      if (version !== authVersion) return;
+      $('unlock').disabled = false;
+      if (valid !== true) { showLogin('Sai khóa xem. Vui lòng thử lại.'); return; }
+      viewKey = candidate;
+      saveKey(candidate);
+      $('view-key').value = '';
+      $('login').hidden = true;
+      $('app').hidden = false;
+      $('change-key').hidden = false;
+      search('');
+    }, error => {
+      if (version !== authVersion) return;
+      $('unlock').disabled = false;
+      handleError(error, 'key-message', 'Không kiểm tra được khóa: ');
+    });
+  }
+  function search(query) {
+    if (!viewKey) return;
+    const version = ++searchVersion, auth = authVersion;
+    const current = () => version === searchVersion && auth === authVersion;
+    clearDetail(false);
+    $('results').replaceChildren();
+    $('results').setAttribute('aria-busy', 'true');
+    $('results-title').textContent = query ? 'Kết quả cho: ' + query : '50 kết quả mới nhất';
+    message('search-message', 'Đang tìm kết quả…');
+    message('packing-message', query ? 'Đang tra giờ packing cho ' + query + '…' : 'Quét mã đơn để tra giờ packing.');
+    // Independent calls: a packing configuration error must not hide counting results.
+    if (query) callServer('uiPackingTime', [viewKey, query], result => {
+      if (!current()) return;
+      message('packing-message', result && result.packingTime ? time(result.packingTime) : 'Chưa có giờ packing');
+    }, error => { if (current()) handleError(error, 'packing-message', 'Không tra được giờ packing: '); });
+    callServer('uiSearch', [viewKey, query], result => {
+      if (!current()) return;
+      $('results').setAttribute('aria-busy', 'false');
+      if (!result || !Array.isArray(result.items)) { message('search-message', 'Dữ liệu kết quả không hợp lệ. Vui lòng tìm lại.', true); return; }
+      renderResults(result.items);
+      message('search-message', result.items.length ? result.items.length + ' kết quả · Chọn một dòng để xem bằng chứng.' : 'Không có kết quả' + (query ? ' cho mã ' + query + '.' : '.'));
+    }, error => {
+      if (!current()) return;
+      $('results').setAttribute('aria-busy', 'false');
+      handleError(error, 'search-message', 'Không tải được kết quả: ');
+    });
+    // Select immediately, never steal focus when an asynchronous response arrives.
+    $('query').focus(); $('query').select();
+  }
+  function renderResults(items) {
+    const fragment = document.createDocumentFragment();
+    items.forEach(record => {
+      const li = node('li'), button = node('button', undefined, 'result');
+      button.type = 'button'; button.setAttribute('aria-pressed', 'false'); button.setAttribute('aria-controls', 'detail');
+      const head = node('span', undefined, 'result-head'), state = status(record);
+      head.append(node('span', value(record.orderCode), 'order'), node('span', state[0], 'badge ' + state[1]));
+      const meta = node('span', undefined, 'meta');
+      meta.append(node('span', 'Camera: ' + value(record.camera)), node('span', 'Giờ thật: ' + time(record.wallTime)), node('span', 'Trong video: ' + videoTime(record.videoTimeS)));
+      button.append(head, node('span', ordinal(record), 'ordinal'), meta);
+      button.addEventListener('click', () => showDetail(record.id, button));
+      li.append(button); fragment.append(li);
+    });
+    $('results').replaceChildren(fragment);
+  }
+  function showDetail(id, button) {
+    clearDetail(false);
+    selectedRow = button; button.setAttribute('aria-pressed', 'true');
+    const version = detailVersion, searchId = searchVersion, auth = authVersion;
+    const current = () => version === detailVersion && searchId === searchVersion && auth === authVersion;
+    $('detail').hidden = false; $('workspace').classList.add('has-detail');
+    $('detail').setAttribute('aria-busy', 'true');
+    message('detail-message', 'Đang tải chi tiết và ảnh bằng chứng…');
+    $('detail-title').focus();
+    callServer('uiGetResult', [viewKey, id], record => {
+      if (!current()) return;
+      $('detail').setAttribute('aria-busy', 'false');
+      if (!record || typeof record !== 'object') { message('detail-message', 'Dữ liệu chi tiết không hợp lệ. Vui lòng chọn lại kết quả.', true); return; }
+      message('detail-message', ''); renderDetail(record);
+    }, error => {
+      if (!current()) return;
+      $('detail').setAttribute('aria-busy', 'false');
+      handleError(error, 'detail-message', 'Không tải được chi tiết: ');
+    });
+  }
+  function renderDetail(r) {
+    const body = $('detail-body'), fields = node('dl');
+    body.append(node('p', ordinal(r), 'ordinal'));
+    const rows = [
+      ['ID kết quả', r.id], ['Mã đơn', r.orderCode], ['Giờ packing', r.packingTime ? time(r.packingTime) : 'Chưa có giờ packing'],
+      ['ID phiên', r.sessionId], ['ID bao', r.bagId], ['Camera', r.camera], ['Tên video', r.videoFile],
+      ['Vị trí trong video', videoTime(r.videoTimeS) + ' (' + value(r.videoTimeS) + ' giây)'], ['Giờ thật (camera)', time(r.wallTime)],
+      ['Thứ tự kiện', r.orderIndex], [r.sessionClosed === true ? 'Tổng kiện đã chốt' : 'Số kiện đã ghi nhận', r.total],
+      ['Phiên', r.sessionClosed === true ? 'Đã chốt' : 'Chưa chốt — số kiện còn có thể thay đổi'],
+      ['Trạng thái', status(r)[0]], ['Ghi chú', r.note], ['Cập nhật lúc', time(r.updatedAt)],
+      ['Tham chiếu bằng chứng', JSON.stringify(r.evidence || [], null, 2)]
+    ];
+    rows.forEach(([label, content]) => fields.append(node('dt', label), node('dd', value(content))));
+    body.append(fields);
+    const images = Array.isArray(r.images) ? r.images : [];
+    imageKinds.forEach(([kind, label]) => {
+      body.append(node('h3', label));
+      const group = node('div', undefined, 'image-grid');
+      const matching = images.filter(image => image.kind === kind);
+      if (!matching.length) group.append(node('p', 'Chưa có ảnh.', 'muted'));
+      matching.forEach((image, index) => {
+        // Only embedded image data is accepted, never remote URLs or markup.
+        if (typeof image.dataUrl !== 'string' || !/^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=\s]+$/i.test(image.dataUrl)) {
+          group.append(node('p', image.error || 'Không mở được ảnh: dữ liệu ảnh bị thiếu hoặc không hợp lệ.', 'image-error error')); return;
+        }
+        const button = node('button', undefined, 'image-button'), img = node('img');
+        const description = label + ' · ' + value(r.orderCode) + ' · ' + (index + 1);
+        button.type = 'button'; img.alt = description; img.loading = 'lazy';
+        img.addEventListener('error', () => button.replaceWith(node('p', 'Không hiển thị được ảnh. Vui lòng mở lại chi tiết.', 'image-error error')), {once:true});
+        img.src = image.dataUrl;
+        button.append(img, node('span', 'Xem lớn · ' + label));
+        button.addEventListener('click', () => {
+          imageTrigger = button;
+          $('viewer-title').textContent = label;
+          $('large-image').alt = description;
+          message('viewer-message', '');
+          $('large-image').src = image.dataUrl;
+          $('viewer').showModal(); $('close-viewer').focus();
+        });
+        group.append(button);
+      });
+      body.append(group);
+    });
+  }
+  $('key-form').addEventListener('submit', event => { event.preventDefault(); if (!$('unlock').disabled) checkKey($('view-key').value.trim()); });
+  $('change-key').addEventListener('click', () => showLogin(''));
+  $('search-form').addEventListener('submit', event => { event.preventDefault(); search($('query').value.trim()); });
+  $('latest').addEventListener('click', () => { $('query').value = ''; search(''); });
+  $('close-detail').addEventListener('click', () => clearDetail(true));
+  $('close-viewer').addEventListener('click', closeViewer);
+  $('viewer').addEventListener('click', event => { if (event.target === $('viewer')) closeViewer(); });
+  $('viewer').addEventListener('close', () => { $('large-image').removeAttribute('src'); if (imageTrigger && imageTrigger.isConnected && !$('detail').hidden) imageTrigger.focus(); imageTrigger = null; });
+  $('large-image').addEventListener('error', () => { if ($('large-image').hasAttribute('src')) message('viewer-message', 'Không hiển thị được ảnh.', true); });
+  const saved = storedKey();
+  if (saved) { $('view-key').value = saved; checkKey(saved); } else $('view-key').focus();
+</script>
+</body>
+</html>
