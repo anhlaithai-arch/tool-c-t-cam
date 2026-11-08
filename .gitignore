@@ -11,3 +11,4 @@ data/
 .env
 node_modules/
 dist/
+.venv-ml/
