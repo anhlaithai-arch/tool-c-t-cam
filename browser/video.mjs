@@ -34,7 +34,16 @@ export async function openVideo(source, video = document.createElement('video'))
  * Trả về {requestedS, mediaTimeS|null}: mediaTimeS là PTS của khung đang hiện (từ requestVideoFrameCallback nếu có).
  * Muốn lấy đúng khung có PTS = p thì truyền tS nằm giữa p và PTS khung sau.
  */
-export function seek(video, tS, timeoutMs = 5000) {
+export function seek(video, tS, timeoutMs = 5000, { waitFrame = true } = {}) {
+  if (!waitFrame) {
+    // Nhanh: chỉ chờ 'seeked' (khung đã sẵn để vẽ), không chờ rVFC. Dùng khi quét liên tục.
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { video.removeEventListener('seeked', on); reject(new Error(`Tua quá ${timeoutMs}ms tại ${tS}s`)); }, timeoutMs);
+      const on = () => { clearTimeout(timer); resolve({ requestedS: tS, mediaTimeS: null }); };
+      video.addEventListener('seeked', on, { once: true });
+      video.currentTime = tS;
+    });
+  }
   return new Promise((resolve, reject) => {
     let done = false;
     const timer = setTimeout(() => finish(null, new Error(`Tua quá ${timeoutMs}ms tại ${tS}s`)), timeoutMs);

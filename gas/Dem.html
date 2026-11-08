@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<base target="_top">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Đếm kiện vào bao</title>
+<style>
+  :root { --ink:#182b40; --muted:#526477; --line:#ccd6e0; --blue:#174fb4; --paper:#fff; --bg:#f2f5f8;
+          --ok:#176236; --okbg:#e3f5e9; --warn:#894000; --warnbg:#fff0dc; --bad:#a32424; --badbg:#fde8e8; --hl:#ffd400; }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; background: var(--paper); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 20px; margin: 0; }
+  header a { color: var(--blue); }
+  main { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(340px, 1fr); gap: 16px; padding: 16px 20px; max-width: 1500px; margin: auto; }
+  @media (max-width: 1000px) { main { grid-template-columns: minmax(0, 1fr); padding: 12px; } }
+  .panel { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 14px; min-width: 0; }
+  .panel h2 { font-size: 16px; margin: 0 0 10px; }
+  label { display: block; font-weight: 600; font-size: 13px; margin: 8px 0 4px; }
+  input[type=text], input[type=password], input[type=number] { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid #8395a8; border-radius: 7px; font: inherit; }
+  button { min-height: 38px; border: 1px solid var(--line); border-radius: 7px; padding: 7px 12px; background: var(--paper); color: var(--ink); font: inherit; cursor: pointer; }
+  button:hover { background: #eaf0f8; } button:disabled { opacity: .55; cursor: not-allowed; }
+  .primary { background: var(--blue); border-color: var(--blue); color: #fff; } .primary:hover { background: #113d8c; }
+  .row { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; } .row > * { flex: 1 1 120px; min-width: 0; }
+  .row > button { flex: 0 0 auto; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .msg { margin: 8px 0 0; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; } .msg:empty { display: none; }
+  .err { color: var(--bad); } .okc { color: var(--ok); }
+  .stage { position: relative; background: #000; border-radius: 8px; overflow: hidden; }
+  .stage video { display: block; width: 100%; max-height: 70vh; background: #000; }
+  .stage canvas { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
+  .stage.drawing canvas { pointer-events: auto; cursor: crosshair; }
+  .vbar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+  .vbar .time { font-variant-numeric: tabular-nums; font-weight: 600; margin-left: auto; }
+  progress { width: 100%; height: 10px; }
+  .result { border: 2px solid var(--blue); background: #eff5ff; border-radius: 10px; padding: 12px; }
+  .result .big { font-size: 22px; font-weight: 750; }
+  .result img { width: 100%; border-radius: 6px; margin-top: 8px; }
+  .stats { display: flex; gap: 14px; flex-wrap: wrap; font-size: 14px; margin-bottom: 8px; }
+  .stats b { font-size: 18px; }
+  #events { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; max-height: 70vh; overflow: auto; }
+  .ev { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 10px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
+  .ev.target { outline: 3px solid var(--hl); }
+  .ev img { width: 120px; height: 90px; object-fit: cover; border-radius: 5px; background: var(--bg); cursor: pointer; }
+  .ev .head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .ev .num { font-weight: 750; font-size: 17px; }
+  .badge { display: inline-block; border-radius: 5px; padding: 1px 7px; font-size: 12px; font-weight: 700; }
+  .b-acc { background: var(--okbg); color: var(--ok); } .b-pend { background: #edf0f3; color: var(--muted); }
+  .b-rej { background: var(--badbg); color: var(--bad); } .b-occ { background: var(--warnbg); color: var(--warn); }
+  .ev .acts { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 4px; } .ev .acts button { min-height: 30px; padding: 3px 8px; font-size: 13px; }
+  .ev .cnt { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
+  details summary { cursor: pointer; font-weight: 600; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Đếm kiện vào bao</h1>
+  <nav class="muted"><a id="lnk-lookup" href="#">Tra cứu kết quả</a></nav>
+</header>
+<main>
+  <section>
+    <div class="panel">
+      <h2>1. Chọn video camera</h2>
+      <input id="file" type="file" accept="video/*">
+      <p class="muted">Video chỉ mở trên máy này, không tải lên đâu cả.</p>
+      <p id="video-msg" class="msg"></p>
+    </div>
+    <div class="panel" id="player-panel" hidden>
+      <div id="stage" class="stage"><video id="video" playsinline muted></video><canvas id="overlay"></canvas></div>
+      <div class="vbar">
+        <button id="play" type="button">▶ Phát</button>
+        <button id="back1" type="button" title="Lùi 1 khung">◀ 1 khung</button>
+        <button id="fwd1" type="button" title="Tiến 1 khung">1 khung ▶</button>
+        <button id="back5" type="button">−5s</button><button id="fwd5" type="button">+5s</button>
+        <span class="time" id="tnow">00:00.0</span>
+      </div>
+      <input id="seekbar" type="range" min="0" max="1000" value="0" style="width:100%">
+      <div class="row" style="margin-top:8px">
+        <button id="draw" type="button" class="primary">Khoanh miệng bao</button>
+        <span class="muted" id="roi-info">Chưa khoanh vùng. Kéo chuột quanh miệng bao.</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="panel">
+      <h2>2. Thông tin đơn</h2>
+      <div class="row">
+        <div><label for="order">Mã đơn</label><input id="order" type="text" autocomplete="off" placeholder="Bắn mã đơn"></div>
+        <div><label for="camera">Camera</label><input id="camera" type="text" placeholder="vd Camera 01"></div>
+      </div>
+      <div class="row">
+        <div><label for="bag">Mã bao (nếu có)</label><input id="bag" type="text"></div>
+        <div><label for="from">Đếm từ (mm:ss)</label><input id="from" type="text" placeholder="đầu video"></div>
+        <div><label for="to">Đến (mm:ss)</label><input id="to" type="text" placeholder="cuối video"></div>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <button id="set-from" type="button">Từ = hiện tại</button>
+        <button id="set-to" type="button">Đến = hiện tại</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button id="scan" type="button" class="primary" disabled>Đếm</button>
+        <button id="cancel" type="button" hidden>Hủy</button>
+      </div>
+      <progress id="prog" value="0" max="1" hidden></progress>
+      <p id="scan-msg" class="msg"></p>
+    </div>
+
+    <div class="panel">
+      <h2>3. Đánh dấu đơn</h2>
+      <label for="target">Vị trí đơn: thời điểm trong video (mm:ss), giờ camera (HH:MM:SS) hoặc thứ tự (#20)</label>
+      <div class="row">
+        <input id="target" type="text" placeholder="vd 12:31.5  hoặc  16:59:40  hoặc  #20">
+        <button id="target-now" type="button">Lấy thời điểm hiện tại</button>
+        <button id="mark" type="button" class="primary" disabled>Đánh dấu</button>
+      </div>
+      <label><input id="closed" type="checkbox"> Đoạn đã đếm chứa trọn cả phiên đóng bao (chốt tổng)</label>
+      <p id="mark-msg" class="msg"></p>
+      <div id="result" class="result" hidden>
+        <div class="big" id="res-big"></div>
+        <div id="res-meta" class="muted"></div>
+        <img id="res-img" alt="Ảnh đánh dấu kiện">
+        <div class="row" style="margin-top:8px">
+          <div><label for="key">Khóa nhóm</label><input id="key" type="password" autocomplete="current-password"></div>
+          <button id="save" type="button" class="primary">Lưu lên webapp</button>
+        </div>
+        <p id="save-msg" class="msg"></p>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>4. Duyệt các lượt bỏ kiện</h2>
+      <div class="stats" id="stats"><span class="muted">Chưa đếm.</span></div>
+      <p class="muted">AI chỉ đề xuất. Lượt "nghi người che" mặc định không tính. Bấm ảnh để xem lại đoạn đó.</p>
+      <ul id="events"></ul>
+    </div>
+
+    <div class="panel">
+      <details>
+        <summary>Đồng bộ giờ camera (tùy chọn, để nhập vị trí bằng giờ camera)</summary>
+        <p class="muted">Dừng ở một khung, gõ đúng chữ đồng hồ góc trên trái, vd <code>11-04-2026 Wed 16:48:42</code>.</p>
+        <div class="row">
+          <input id="clock-label" type="text" placeholder="chữ đồng hồ trên khung hiện tại">
+          <button id="clock-run" type="button" disabled>Đồng bộ</button>
+        </div>
+        <p id="clock-msg" class="msg"></p>
+      </details>
+    </div>
+  </section>
+</main>
+
+<?!= include('LogicBundle') ?>
+<script>
+'use strict';
+(function () {
+  const A = window.CountingApp;
+  const $ = (id) => document.getElementById(id);
+  const KEY_STORE = 'dem-kien.view-key';
+  const st = { h: null, file: null, roi: null, scan: null, decisions: {}, counts: {}, abort: null, sync: null, clock: null, target: null, busy: false };
+
+  // ---------- tiện ích ----------
+  const fmt = (s) => { if (!isFinite(s)) return '—'; const m = Math.floor(s / 60); return String(m).padStart(2, '0') + ':' + (s - m * 60).toFixed(1).padStart(4, '0'); };
+  function parseMmss(s) {
+    s = String(s || '').trim(); if (!s) return null;
+    const p = s.split(':').map(Number); if (p.some((x) => !isFinite(x))) return NaN;
+    if (p.length === 1) return p[0]; if (p.length === 2) return p[0] * 60 + p[1]; return NaN;
+  }
+  function msg(id, text, cls) { const e = $(id); e.textContent = text || ''; e.className = 'msg' + (cls ? ' ' + cls : ''); }
+  function store(k, v) { try { v === undefined ? localStorage.getItem(k) : localStorage.setItem(k, v); } catch (_) {} }
+  function load(k) { try { return localStorage.getItem(k) || ''; } catch (_) { return ''; } }
+  const inGas = () => !!(window.google && google.script && google.script.run);
+  function rpc(method, ...args) {
+    return new Promise((res, rej) => {
+      if (!inGas()) return rej(new Error('Chỉ lưu được khi mở trang bằng link webapp.'));
+      google.script.run.withSuccessHandler(res).withFailureHandler(rej)[method](...args);
+    });
+  }
+  function setBusy(b) {
+    st.busy = b;
+    ['scan', 'mark', 'clock-run', 'draw', 'file'].forEach((id) => { $(id).disabled = b || (id !== 'file' && !st.h); });
+    if (!b) refreshButtons();
+  }
+  function refreshButtons() {
+    $('scan').disabled = st.busy || !st.h || !st.roi;
+    $('mark').disabled = st.busy || !st.scan;
+    $('clock-run').disabled = st.busy || !st.h;
+  }
+
+  // ---------- video ----------
+  const video = $('video');
+  async function openFile(src, name) {
+    try {
+      if (st.h) st.h.close();
+      Object.assign(st, { h: null, roi: null, scan: null, decisions: {}, counts: {}, sync: null, clock: null, target: null });
+      $('events').replaceChildren(); $('result').hidden = true; renderStats();
+      msg('video-msg', 'Đang mở video…');
+      st.h = await A.video.openVideo(src, video);
+      st.file = name;
+      $('player-panel').hidden = false;
+      msg('video-msg', `${name} · ${st.h.width}×${st.h.height} · ${fmt(st.h.durationS)}`, 'okc');
+      if (!$('camera').value) { const m = /cam(?:era)?[ _-]?(\d+)/i.exec(name); if (m) $('camera').value = 'Camera ' + m[1]; }
+      drawOverlay(); refreshButtons(); tick();
+    } catch (e) { msg('video-msg', e.message, 'err'); }
+  }
+  $('file').addEventListener('change', () => { const f = $('file').files[0]; if (f) openFile(f, f.name); });
+
+  function tick() { $('tnow').textContent = fmt(video.currentTime) + (st.sync ? '  ·  ' + wallStr(video.currentTime) : ''); if (st.h) $('seekbar').value = Math.round(1000 * video.currentTime / st.h.durationS); }
+  video.addEventListener('timeupdate', tick); video.addEventListener('seeked', tick);
+  $('seekbar').addEventListener('input', () => { if (st.h && !st.busy) video.currentTime = $('seekbar').value / 1000 * st.h.durationS; });
+  $('play').addEventListener('click', () => { if (st.busy) return; video.paused ? video.play() : video.pause(); });
+  video.addEventListener('play', () => { $('play').textContent = '⏸ Dừng'; }); video.addEventListener('pause', () => { $('play').textContent = '▶ Phát'; });
+  const step = (d) => () => { if (!st.busy) { video.pause(); video.currentTime = Math.max(0, Math.min(st.h.durationS, video.currentTime + d)); } };
+  $('back1').addEventListener('click', step(-0.04)); $('fwd1').addEventListener('click', step(0.04));
+  $('back5').addEventListener('click', step(-5)); $('fwd5').addEventListener('click', step(5));
+
+  // ---------- khoanh vùng ----------
+  const ov = $('overlay');
+  function videoRect() { // vùng hiển thị thật của video trong khung (object-fit: contain)
+    const W = video.clientWidth, H = video.clientHeight, r = st.h.width / st.h.height;
+    let w = W, h = W / r; if (h > H) { h = H; w = H * r; }
+    return { x: (W - w) / 2, y: (H - h) / 2, w, h };
+  }
+  function drawOverlay() {
+    ov.width = ov.clientWidth; ov.height = ov.clientHeight;
+    const c = ov.getContext('2d'); c.clearRect(0, 0, ov.width, ov.height);
+    if (!st.h || !st.roi) return;
+    const vr = videoRect(), sx = vr.w / st.h.width, sy = vr.h / st.h.height;
+    c.strokeStyle = '#ffd400'; c.lineWidth = 2;
+    c.strokeRect(vr.x + st.roi.x * sx, vr.y + st.roi.y * sy, st.roi.w * sx, st.roi.h * sy);
+  }
+  window.addEventListener('resize', drawOverlay);
+  let drag = null;
+  $('draw').addEventListener('click', () => { $('stage').classList.toggle('drawing'); video.pause(); });
+  ov.addEventListener('pointerdown', (e) => { if (!st.h) return; ov.setPointerCapture(e.pointerId); drag = { x0: e.offsetX, y0: e.offsetY, x1: e.offsetX, y1: e.offsetY }; });
+  ov.addEventListener('pointermove', (e) => {
+    if (!drag) return; drag.x1 = e.offsetX; drag.y1 = e.offsetY;
+    drawOverlay(); const c = ov.getContext('2d'); c.strokeStyle = '#ffd400'; c.setLineDash([6, 4]); c.lineWidth = 2;
+    c.strokeRect(Math.min(drag.x0, drag.x1), Math.min(drag.y0, drag.y1), Math.abs(drag.x1 - drag.x0), Math.abs(drag.y1 - drag.y0));
+  });
+  ov.addEventListener('pointerup', () => {
+    if (!drag) return;
+    const vr = videoRect(), sx = st.h.width / vr.w, sy = st.h.height / vr.h;
+    const x = Math.max(0, (Math.min(drag.x0, drag.x1) - vr.x) * sx), y = Math.max(0, (Math.min(drag.y0, drag.y1) - vr.y) * sy);
+    const w = Math.min(st.h.width - x, Math.abs(drag.x1 - drag.x0) * sx), h = Math.min(st.h.height - y, Math.abs(drag.y1 - drag.y0) * sy);
+    drag = null; $('stage').classList.remove('drawing');
+    if (w < 12 || h < 12) { msg('scan-msg', 'Vùng khoanh quá nhỏ, khoanh lại.', 'err'); drawOverlay(); return; }
+    setRoi({ x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) });
+  });
+  function setRoi(r) {
+    st.roi = r; st.scan = null; $('events').replaceChildren(); renderStats(); $('result').hidden = true;
+    $('roi-info').textContent = `Vùng đếm: x=${r.x} y=${r.y} rộng=${r.w} cao=${r.h}`;
+    drawOverlay(); refreshButtons();
+  }
+
+  $('set-from').addEventListener('click', () => { $('from').value = fmt(video.currentTime); });
+  $('set-to').addEventListener('click', () => { $('to').value = fmt(video.currentTime); });
+
+  // ---------- đếm ----------
+  $('scan').addEventListener('click', async () => {
+    const a = parseMmss($('from').value), b = parseMmss($('to').value);
+    const startS = a ?? 0, endS = b ?? st.h.durationS;
+    if (Number.isNaN(startS) || Number.isNaN(endS) || endS <= startS) { msg('scan-msg', 'Khoảng thời gian không hợp lệ (mm:ss).', 'err'); return; }
+    video.pause(); setBusy(true);
+    st.abort = new AbortController(); $('cancel').hidden = false; $('prog').hidden = false; $('prog').value = 0;
+    const t0 = performance.now();
+    try {
+      msg('scan-msg', 'Đang quét chuyển động trong vùng khoanh…');
+      st.scan = await A.counter.scanRange(video, st.roi, { startS, endS, signal: st.abort.signal,
+        onProgress: (d, tot) => { $('prog').value = d / tot; } });
+      st.scan.range = { startS, endS };
+      st.decisions = {}; st.counts = {}; st.thumbs = {};
+      renderEvents();
+      msg('scan-msg', `Xong sau ${((performance.now() - t0) / 1000).toFixed(0)} giây. Đang tạo ảnh xem nhanh…`);
+      for (const ev of st.scan.events) {
+        if (st.abort.signal.aborted) break;
+        st.thumbs[ev.id] = await A.counter.snapshot(video, st.roi, ev.peakS);
+        const img = document.querySelector(`[data-thumb="${ev.id}"]`); if (img) img.src = st.thumbs[ev.id];
+      }
+      msg('scan-msg', `Đã quét ${fmt(startS)}–${fmt(endS)}: ${st.scan.events.length} lượt nghi vấn. Duyệt ở mục 4.`, 'okc');
+    } catch (e) {
+      msg('scan-msg', e.name === 'AbortError' ? 'Đã hủy.' : 'Lỗi: ' + e.message, 'err');
+    } finally { $('cancel').hidden = true; $('prog').hidden = true; setBusy(false); }
+  });
+  $('cancel').addEventListener('click', () => st.abort && st.abort.abort());
+
+  function numbered() { return A.motion.numberEvents(st.scan ? st.scan.events : [], st.decisions, st.counts); }
+  function renderStats() {
+    const s = $('stats'); s.replaceChildren();
+    if (!st.scan) { s.append(Object.assign(document.createElement('span'), { className: 'muted', textContent: 'Chưa đếm.' })); return; }
+    const n = numbered();
+    const pend = n.items.filter((i) => i.decision === 'pending').length;
+    const add = (label, v) => { const sp = document.createElement('span'); sp.append(label + ': '); sp.append(Object.assign(document.createElement('b'), { textContent: v })); s.append(sp); };
+    add('Số kiện đang tính', n.total); add('Lượt nghi vấn', n.items.length); add('Chưa duyệt', pend);
+  }
+  function renderEvents() {
+    renderStats();
+    const ul = $('events'); ul.replaceChildren();
+    if (!st.scan) return;
+    const n = numbered();
+    for (const it of n.items) {
+      const li = document.createElement('li'); li.className = 'ev' + (st.target && st.target.id === it.id ? ' target' : '');
+      li.dataset.id = it.id;
+      const img = document.createElement('img'); img.alt = 'Lượt lúc ' + fmt(it.peakS); img.dataset.thumb = it.id;
+      if (st.thumbs && st.thumbs[it.id]) img.src = st.thumbs[it.id];
+      img.addEventListener('click', () => replay(it));
+      const body = document.createElement('div');
+      const head = document.createElement('div'); head.className = 'head';
+      head.append(Object.assign(document.createElement('span'), { className: 'num', textContent: it.counted ? 'Kiện #' + it.label : 'Không tính' }));
+      const badge = document.createElement('span');
+      badge.className = 'badge ' + (it.decision === 'accept' ? 'b-acc' : it.decision === 'reject' ? 'b-rej' : it.kind === 'occlusion' ? 'b-occ' : 'b-pend');
+      badge.textContent = it.decision === 'accept' ? 'Đã xác nhận' : it.decision === 'reject' ? 'Đã bỏ' : it.kind === 'occlusion' ? 'Nghi người che' : 'AI đề xuất';
+      head.append(badge);
+      body.append(head);
+      body.append(Object.assign(document.createElement('div'), { className: 'muted', textContent: `${fmt(it.startS)}–${fmt(it.endS)}${st.sync ? ' · ' + wallStr(it.peakS) : ''} · ${it.reason}` }));
+      const acts = document.createElement('div'); acts.className = 'acts';
+      const btn = (t, f) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = t; b.addEventListener('click', f); return b; };
+      acts.append(btn('✓ Tính', () => decide(it.id, 'accept')), btn('✗ Bỏ', () => decide(it.id, 'reject')), btn('Xem lại', () => replay(it)));
+      const cnt = document.createElement('span'); cnt.className = 'cnt';
+      cnt.append('Số kiện:', btn('−', () => setCount(it.id, -1)), Object.assign(document.createElement('b'), { textContent: String(st.counts[it.id] || 1) }), btn('+', () => setCount(it.id, +1)));
+      acts.append(cnt);
+      body.append(acts);
+      li.append(img, body); ul.append(li);
+    }
+  }
+  function decide(id, d) { st.decisions[id] = st.decisions[id] === d ? undefined : d; renderEvents(); if (st.target) mark(true); }
+  function setCount(id, d) { st.counts[id] = Math.max(1, Math.min(9, (st.counts[id] || 1) + d)); if (!st.decisions[id]) st.decisions[id] = 'accept'; renderEvents(); if (st.target) mark(true); }
+  async function replay(it) {
+    if (st.busy) return;
+    video.currentTime = Math.max(0, it.startS - 1);
+    await new Promise((r) => video.addEventListener('seeked', r, { once: true }));
+    video.playbackRate = 0.5; video.play();
+    const stop = () => { if (video.currentTime >= it.endS + 0.8) { video.pause(); video.playbackRate = 1; video.removeEventListener('timeupdate', stop); } };
+    video.addEventListener('timeupdate', stop);
+  }
+
+  // ---------- đánh dấu đơn ----------
+  $('target-now').addEventListener('click', () => { $('target').value = fmt(video.currentTime); });
+  $('mark').addEventListener('click', () => mark(false));
+  function wallStr(v) { const w = st.sync && st.sync.toWall(v); return w == null ? 'giờ ?' : A.clock.secToIso(w).slice(11); }
+  async function mark(silent) {
+    const raw = $('target').value.trim();
+    const n = numbered();
+    let found = null;
+    if (/^#?\d+$/.test(raw)) {
+      const k = Number(raw.replace('#', ''));
+      const it = n.items.find((i) => i.counted && k >= i.firstIndex && k <= i.lastIndex);
+      if (!it) { msg('mark-msg', `Không có kiện thứ ${k} (đang tính ${n.total} kiện).`, 'err'); return; }
+      found = { item: it, distS: 0 };
+    } else {
+      let t = null;
+      const p = raw.split(':');
+      if (p.length === 3) {
+        if (!st.sync) { msg('mark-msg', 'Nhập giờ camera cần đồng bộ giờ trước (mục cuối). Hoặc nhập mm:ss trong video.', 'err'); return; }
+        const base = st.sync.toWall(video.currentTime) ?? st.sync.segments[0].offset;
+        const day = A.clock.secToIso(base).slice(0, 10);
+        const w = A.clock.isoToSec(day + 'T' + p.map((x, i) => i < 2 ? x.padStart(2, '0') : x.padStart(2, '0')).join(':'));
+        const r = w == null ? { videoS: null, note: 'giờ không hợp lệ' } : st.sync.toVideo(w);
+        if (r.videoS == null) { msg('mark-msg', 'Giờ đó không nằm trong video: ' + r.note, 'err'); return; }
+        t = r.videoS;
+      } else {
+        t = parseMmss(raw);
+        if (t == null || Number.isNaN(t)) { msg('mark-msg', 'Nhập mm:ss, HH:MM:SS hoặc #số.', 'err'); return; }
+      }
+      found = A.motion.nearestEvent(n.items, t, 8);
+      if (!found) { msg('mark-msg', `Không có lượt bỏ kiện nào trong ±8 giây quanh ${fmt(t)}. Kiểm tra vùng khoanh/khoảng đếm, hoặc xem lại video.`, 'err'); return; }
+    }
+    const it = found.item;
+    st.target = it; renderEvents();
+    document.querySelector(`.ev[data-id="${it.id}"]`)?.scrollIntoView({ block: 'nearest' });
+    if (!it.counted) { msg('mark-msg', `Lượt gần nhất (${fmt(it.peakS)}) đang không được tính. Bấm "✓ Tính" nếu đó là kiện của đơn.`, 'err'); $('result').hidden = true; return; }
+    const closed = $('closed').checked;
+    const ord = closed ? `Kiện thứ ${it.label}/${n.total}` : `Kiện thứ ${it.label} / ${n.total} kiện đã ghi nhận — phiên chưa chốt`;
+    $('res-big').textContent = ($('order').value ? $('order').value + ': ' : '') + ord;
+    $('res-meta').textContent = `${$('camera').value || 'Camera ?'} · trong video ${fmt(it.peakS)}${st.sync ? ' · giờ camera ' + wallStr(it.peakS) : ''}` +
+      (found.distS > 0 ? ` · cách vị trí đã nhập ${found.distS.toFixed(1)}s` : '') + (it.decision === 'accept' ? ' · đã xác nhận' : ' · AI đề xuất, chưa duyệt');
+    msg('mark-msg', silent ? '' : 'Đang tạo ảnh bằng chứng…');
+    st.ev = await A.counter.evidence(video, st.roi, it.peakS, [
+      ($('order').value || 'Đơn ?') + ' · ' + (closed ? `${it.label}/${n.total}` : `${it.label}/${n.total}*`),
+      `${$('camera').value || ''} ${fmt(it.peakS)}${st.sync ? ' ' + wallStr(it.peakS) : ''}`.trim(),
+    ]);
+    $('res-img').src = st.ev.marked; $('result').hidden = false;
+    msg('mark-msg', closed ? '' : '* phiên chưa chốt: tổng có thể còn thay đổi.');
+  }
+
+  // ---------- lưu ----------
+  $('key').value = load(KEY_STORE);
+  $('save').addEventListener('click', async () => {
+    if (!st.target || !st.ev) return;
+    const order = $('order').value.trim(); if (!order) { msg('save-msg', 'Nhập mã đơn trước khi lưu.', 'err'); return; }
+    const key = $('key').value.trim(); store(KEY_STORE, key);
+    const n = numbered(); const it = n.items.find((i) => i.id === st.target.id);
+    const sid = 'S' + hash([st.file, st.roi.x, st.roi.y, st.roi.w, st.roi.h, st.scan.range.startS, st.scan.range.endS].join('|'));
+    const rec = {
+      id: sid + '_' + it.id, orderCode: order, sessionId: sid, bagId: $('bag').value.trim(), camera: $('camera').value.trim(),
+      videoFile: st.file, videoTimeS: Math.round(it.peakS * 1000) / 1000,
+      wallTime: st.sync && st.sync.toWall(it.peakS) != null ? A.clock.secToIso(st.sync.toWall(it.peakS)) : '',
+      orderIndex: it.label, total: n.total, sessionClosed: $('closed').checked,
+      status: it.decision === 'accept' ? 'xac_nhan' : 'can_kiem_tra',
+      note: `Vùng ${st.roi.x},${st.roi.y},${st.roi.w},${st.roi.h}; đếm ${fmt(st.scan.range.startS)}–${fmt(st.scan.range.endS)}; ${n.items.length} lượt nghi vấn`,
+    };
+    $('save').disabled = true;
+    try {
+      msg('save-msg', 'Đang lưu kết quả…');
+      await rpc('uiSaveMark', key, rec);
+      for (const kind of ['marked', 'crop', 'full']) {
+        msg('save-msg', 'Đang tải ảnh ' + kind + '…');
+        const b64 = st.ev[kind].split(',')[1];
+        await rpc('uiUploadEvidence', key, { resultId: rec.id, kind, fileName: kind + '.jpg', mimeType: 'image/jpeg', base64: b64 });
+      }
+      msg('save-msg', 'Đã lưu. Mở "Tra cứu kết quả" và tìm mã ' + order + '.', 'okc');
+    } catch (e) { msg('save-msg', 'Không lưu được: ' + (e && e.message || e), 'err'); }
+    finally { $('save').disabled = false; }
+  });
+  function hash(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); }
+
+  // ---------- đồng bộ giờ ----------
+  $('clock-run').addEventListener('click', async () => {
+    const label = $('clock-label').value.trim(); if (!label) { msg('clock-msg', 'Gõ chữ đồng hồ trên khung hiện tại.', 'err'); return; }
+    video.pause(); setBusy(true); const at = video.currentTime;
+    try {
+      msg('clock-msg', 'Đang học chữ số đồng hồ…');
+      st.clock = await A.clocksync.learnClock(video, label, at);
+      msg('clock-msg', 'Đang đọc đồng hồ dọc video…');
+      st.sync = await A.clocksync.syncClock(video, st.clock, { onProgress: (i, n) => msg('clock-msg', `Đang đọc đồng hồ ${i}/${n}…`) });
+      const d = st.sync.describe();
+      msg('clock-msg', d.map((g, i) => `Đoạn ${i + 1}: ${fmt(g.videoStart)}–${fmt(g.videoEnd)} = ${g.wallStart.replace('T', ' ')} → ${g.wallEnd.slice(11)} (±${g.uncertainty.toFixed(2)}s)`).join('\n') +
+        (st.sync.warnings.length ? '\nCảnh báo: ' + st.sync.warnings.join('; ') : ''), st.sync.segments.length ? 'okc' : 'err');
+      video.currentTime = at; renderEvents();
+    } catch (e) { msg('clock-msg', e.message, 'err'); }
+    finally { setBusy(false); }
+  });
+
+  // ---------- liên kết & chế độ dev ----------
+  const base = <?= baseUrl ?>; // GAS in ra chuỗi JS đã escape; bản local build thay bằng ""
+  $('lnk-lookup').href = base || '#';
+  const q = new URLSearchParams(location.search);
+  if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname) && q.get('src')) {
+    fetch(q.get('src')).then((r) => r.blob()).then((b) => openFile(b, q.get('src').split('/').pop()));
+  }
+  window.__dem = { st, setRoi }; // để kiểm thử tự động
+})();
+</script>
+</body>
+</html>

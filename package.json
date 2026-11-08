@@ -1,0 +1,12 @@
+{
+  "name": "dem-kien",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-browser.mjs",
+    "test": "node --test tests/browser/"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.10"
+  }
+}

@@ -25,12 +25,39 @@ python -m venv .venv
 
 ## Trạng thái tính năng
 
+Đường chạy chính: webapp GAS, xử lý video trong trình duyệt (xem `docs/PHUONG_AN_TRINH_DUYET.md`).
+
 | Tính năng | Trạng thái |
 |---|---|
-| Đọc đồng hồ camera, ánh xạ giờ thật ↔ thời gian video | Đã chạy trên 1 video thật (Camera 01, 720p) |
-| Lấy thời gian packing từ GAS theo mã đơn | Chưa làm, chờ thông tin webapp GAS |
-| Khoanh vùng + đếm kiện | Chưa làm |
-| Xuất ảnh/clip bằng chứng | Chưa làm |
+| Mở video local trong trình duyệt, tua đúng khung | Đạt trên Chrome local (78/78 khung chuẩn). Chưa thử trong iframe GAS |
+| Đọc đồng hồ camera (mẫu chữ số, JS) + đồng bộ giờ | Đạt trên video mẫu: 50/50 khung, ±0,02s, khớp Python |
+| Khoanh miệng bao, quét chuyển động, đề xuất lượt bỏ kiện | Chạy được: 3 phút video quét trong ~46s. **Độ chính xác chưa đo** (chưa có video đếm tay) |
+| Duyệt lượt (tính/bỏ/số kiện), đánh thứ tự, đánh dấu đơn theo mm:ss / giờ camera / #thứ tự | Chạy được trên trình duyệt local |
+| Ảnh bằng chứng (nguyên khung, đánh dấu, cắt) + lưu lên Sheet/Drive | Code xong, **chưa chạy trên GAS thật** |
+| Lấy giờ packing từ FMS | Chưa làm (để sau) |
+| Vùng đếm bám theo bao di động, nhiều camera | Chưa làm |
+
+## Chạy thử local
+
+```bash
+npm install
+npm run build
+.venv\Scripts\python -m http.server 8765
+```
+
+Mở `http://localhost:8765/dist/dem.html` (trang Đếm kiện) – chọn file video trên máy.
+Kiểm thử: `npm test` (JS) và `.venv\Scripts\python -m pytest` (Python).
+
+## Đẩy lên Apps Script
+
+```bash
+npm run build
+cd gas
+clasp push --force
+```
+
+Lần đầu: mở project Apps Script, chạy `setup()` để tạo khóa nhóm (`VIEW_KEY`), rồi Deploy > Web app.
+Trang tra cứu: link webapp. Trang đếm: link webapp + `?page=dem`.
 
 ## Dùng thử: đồng bộ thời gian
 

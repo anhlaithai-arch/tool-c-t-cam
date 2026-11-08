@@ -1,0 +1,911 @@
+<!-- FILE SINH TỰ ĐỘNG từ browser/ bằng scripts/build-browser.mjs. KHÔNG SỬA TAY. -->
+<script>
+var CountingApp = (() => {
+  var __defProp = Object.defineProperty;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+  var __getOwnPropNames = Object.getOwnPropertyNames;
+  var __hasOwnProp = Object.prototype.hasOwnProperty;
+  var __export = (target, all) => {
+    for (var name in all)
+      __defProp(target, name, { get: all[name], enumerable: true });
+  };
+  var __copyProps = (to, from, except, desc) => {
+    if (from && typeof from === "object" || typeof from === "function") {
+      for (let key of __getOwnPropNames(from))
+        if (!__hasOwnProp.call(to, key) && key !== except)
+          __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+    }
+    return to;
+  };
+  var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+  // browser/entry.mjs
+  var entry_exports = {};
+  __export(entry_exports, {
+    clock: () => clock_exports,
+    clocksync: () => clocksync_exports,
+    counter: () => counter_exports,
+    motion: () => motion_exports,
+    sync: () => sync_exports,
+    version: () => version,
+    video: () => video_exports
+  });
+
+  // browser/video.mjs
+  var video_exports = {};
+  __export(video_exports, {
+    frameCanvas: () => frameCanvas,
+    grayThumb: () => grayThumb,
+    meanAbsDiff: () => meanAbsDiff,
+    openVideo: () => openVideo,
+    seek: () => seek
+  });
+  async function openVideo(source, video = document.createElement("video")) {
+    const url = typeof source === "string" ? source : URL.createObjectURL(source);
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "auto";
+    video.src = url;
+    await new Promise((resolve, reject) => {
+      const ok = () => {
+        cleanup();
+        resolve();
+      };
+      const bad = () => {
+        cleanup();
+        reject(new Error("Trình duyệt không mở được video (codec/định dạng?)"));
+      };
+      const cleanup = () => {
+        video.removeEventListener("loadeddata", ok);
+        video.removeEventListener("error", bad);
+      };
+      video.addEventListener("loadeddata", ok);
+      video.addEventListener("error", bad);
+    });
+    return {
+      video,
+      url,
+      width: video.videoWidth,
+      height: video.videoHeight,
+      durationS: video.duration,
+      close() {
+        video.removeAttribute("src");
+        video.load();
+        if (typeof source !== "string") URL.revokeObjectURL(url);
+      }
+    };
+  }
+  function seek(video, tS, timeoutMs = 5e3, { waitFrame = true } = {}) {
+    if (!waitFrame) {
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          video.removeEventListener("seeked", on);
+          reject(new Error(`Tua quá ${timeoutMs}ms tại ${tS}s`));
+        }, timeoutMs);
+        const on = () => {
+          clearTimeout(timer);
+          resolve({ requestedS: tS, mediaTimeS: null });
+        };
+        video.addEventListener("seeked", on, { once: true });
+        video.currentTime = tS;
+      });
+    }
+    return new Promise((resolve, reject) => {
+      let done = false;
+      const timer = setTimeout(() => finish(null, new Error(`Tua quá ${timeoutMs}ms tại ${tS}s`)), timeoutMs);
+      const finish = (mediaTime, err) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        video.removeEventListener("seeked", onSeeked);
+        err ? reject(err) : resolve({ requestedS: tS, mediaTimeS: mediaTime });
+      };
+      const hasRvfc = typeof video.requestVideoFrameCallback === "function";
+      let gotFrame = null, seeked = false;
+      if (hasRvfc) {
+        video.requestVideoFrameCallback((_now, meta) => {
+          gotFrame = meta.mediaTime;
+          if (seeked) finish(gotFrame);
+        });
+      }
+      const onSeeked = () => {
+        seeked = true;
+        if (!hasRvfc) return finish(null);
+        if (gotFrame !== null) return finish(gotFrame);
+        setTimeout(() => finish(gotFrame), 250);
+      };
+      video.addEventListener("seeked", onSeeked);
+      video.currentTime = tS;
+    });
+  }
+  var _canvas = null;
+  function grayThumb(video, w, h) {
+    _canvas = _canvas || document.createElement("canvas");
+    _canvas.width = w;
+    _canvas.height = h;
+    const ctx = _canvas.getContext("2d", { willReadFrequently: true });
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(video, 0, 0, w, h);
+    const rgba = ctx.getImageData(0, 0, w, h).data;
+    const out = new Uint8ClampedArray(w * h);
+    for (let i = 0, j = 0; j < out.length; i += 4, j++) {
+      out[j] = 0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2];
+    }
+    return out;
+  }
+  function frameCanvas(video, canvas = document.createElement("canvas")) {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d").drawImage(video, 0, 0);
+    return canvas;
+  }
+  function meanAbsDiff(a, b) {
+    let s = 0;
+    for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]);
+    return s / a.length;
+  }
+
+  // browser/counter.mjs
+  var counter_exports = {};
+  __export(counter_exports, {
+    contextBox: () => contextBox,
+    evidence: () => evidence,
+    scanRange: () => scanRange,
+    snapshot: () => snapshot
+  });
+
+  // browser/core/motion.mjs
+  var motion_exports = {};
+  __export(motion_exports, {
+    DEFAULTS: () => DEFAULTS,
+    boxBlur: () => boxBlur,
+    changedFraction: () => changedFraction,
+    detectEvents: () => detectEvents,
+    nearestEvent: () => nearestEvent,
+    numberEvents: () => numberEvents
+  });
+  function boxBlur(img) {
+    const { w, h, data } = img;
+    const out = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        let s = 0, n = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          const yy = y + dy;
+          if (yy < 0 || yy >= h) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            const xx = x + dx;
+            if (xx < 0 || xx >= w) continue;
+            s += data[yy * w + xx];
+            n++;
+          }
+        }
+        out[y * w + x] = s / n;
+      }
+    }
+    return { w, h, data: out };
+  }
+  function changedFraction(a, b, thr = 18) {
+    let n = 0;
+    for (let i = 0; i < a.data.length; i++) if (Math.abs(a.data[i] - b.data[i]) > thr) n++;
+    return n / a.data.length;
+  }
+  var median = (arr) => {
+    const s = [...arr].sort((x, y) => x - y);
+    return s.length ? s[s.length >> 1] : 0;
+  };
+  var DEFAULTS = {
+    hiMin: 0.04,
+    // ngưỡng bật tối thiểu (tỷ lệ diện tích đổi)
+    loMin: 0.02,
+    // ngưỡng tắt tối thiểu
+    quietS: 0.4,
+    // phải yên ít nhất chừng này mới kết thúc lượt
+    mergeGapS: 0.6,
+    // hai lượt cách nhau ít hơn -> gộp
+    occlusionAct: 0.5,
+    // phủ > 50% vùng -> nghi người che
+    occlusionDurS: 2
+    // kéo dài > 2s -> nghi người che / thao tác lâu
+  };
+  function detectEvents(times, act, opts = {}) {
+    const o = { ...DEFAULTS, ...opts };
+    if (times.length !== act.length) throw new Error("times/act lệch độ dài");
+    const med = median(act);
+    const mad = median(act.map((a) => Math.abs(a - med))) + 1e-6;
+    const hi = Math.max(o.hiMin, med + 6 * mad);
+    const lo = Math.max(o.loMin, med + 3 * mad);
+    const raw = [];
+    let on = false, s = 0;
+    for (let k = 0; k < act.length; k++) {
+      if (!on && act[k] > hi) {
+        on = true;
+        s = k;
+        continue;
+      }
+      if (on && act[k] < lo) {
+        let quiet = true;
+        for (let j = k; j < act.length && times[j] - times[k] < o.quietS; j++) if (act[j] >= lo) {
+          quiet = false;
+          break;
+        }
+        if (quiet) {
+          raw.push([s, k]);
+          on = false;
+        }
+      }
+    }
+    if (on) raw.push([s, act.length - 1]);
+    const merged = [];
+    for (const e of raw) {
+      const last = merged[merged.length - 1];
+      if (last && times[e[0]] - times[last[1]] < o.mergeGapS) last[1] = e[1];
+      else merged.push([...e]);
+    }
+    return merged.map(([a, b]) => {
+      let peakIdx = a;
+      for (let k = a; k <= b; k++) if (act[k] > act[peakIdx]) peakIdx = k;
+      const maxAct = act[peakIdx];
+      const durationS = times[b] - times[a];
+      let kind = "drop", reason = "Vật đi vào miệng bao";
+      if (maxAct > o.occlusionAct) {
+        kind = "occlusion";
+        reason = `Phủ ${(maxAct * 100).toFixed(0)}% vùng – có thể người che/đi qua`;
+      } else if (durationS > o.occlusionDurS) {
+        kind = "occlusion";
+        reason = `Kéo dài ${durationS.toFixed(1)}s – có thể thao tác lâu/người che`;
+      }
+      return {
+        id: `ev_${Math.round(times[peakIdx] * 1e3)}`,
+        // ID cố định theo thời điểm, không theo thứ tự
+        startS: times[a],
+        endS: times[b],
+        peakS: times[peakIdx],
+        peakIdx,
+        maxAct,
+        durationS,
+        kind,
+        reason
+      };
+    });
+  }
+  function numberEvents(events, decisions = {}, counts = {}) {
+    const sorted = [...events].sort((a, b) => a.peakS - b.peakS);
+    let n = 0;
+    const items = sorted.map((e) => {
+      const d = decisions[e.id];
+      const counted = d === "accept" || d === void 0 && e.kind === "drop";
+      const c = counted ? Math.max(1, counts[e.id] || 1) : 0;
+      const first = counted ? n + 1 : null;
+      n += c;
+      const last = counted ? n : null;
+      return {
+        ...e,
+        decision: d || "pending",
+        counted,
+        count: c,
+        firstIndex: first,
+        lastIndex: last,
+        label: counted ? first === last ? String(first) : `${first}–${last}` : null
+      };
+    });
+    return { items, total: n };
+  }
+  function nearestEvent(items, tS, maxDistS = 10) {
+    let best = null;
+    for (const it of items) {
+      const d = tS < it.startS ? it.startS - tS : tS > it.endS ? tS - it.endS : 0;
+      const score = d + (it.counted ? 0 : 0.5);
+      if (d <= maxDistS && (!best || score < best.score)) best = { item: it, distS: d, score };
+    }
+    return best;
+  }
+
+  // browser/counter.mjs
+  var MAX_W = 160;
+  function grayOf(ctx, w, h) {
+    const d = ctx.getImageData(0, 0, w, h).data;
+    const g = new Uint8Array(w * h);
+    for (let i = 0, j = 0; j < g.length; i += 4, j++) g[j] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    return { w, h, data: g };
+  }
+  async function scanRange(video, roi, { startS = 0, endS = video.duration, fps = 12.5, onProgress, signal, opts } = {}) {
+    const scale = Math.min(1, MAX_W / roi.w);
+    const w = Math.max(8, Math.round(roi.w * scale)), h = Math.max(8, Math.round(roi.h * scale));
+    const cv = document.createElement("canvas");
+    cv.width = w;
+    cv.height = h;
+    const ctx = cv.getContext("2d", { willReadFrequently: true });
+    const times = [], act = [];
+    let prev = null;
+    const dt = 1 / fps;
+    for (let t = startS; t <= endS; t += dt) {
+      if (signal?.aborted) throw new DOMException("Đã hủy", "AbortError");
+      await seek(video, Math.min(t, video.duration - 1e-3), 5e3, { waitFrame: false });
+      const mt = t;
+      ctx.drawImage(video, roi.x, roi.y, roi.w, roi.h, 0, 0, w, h);
+      const g = boxBlur(grayOf(ctx, w, h));
+      times.push(mt);
+      act.push(prev ? changedFraction(prev, g) : 0);
+      prev = g;
+      if (onProgress && times.length % 10 === 0) onProgress(t - startS, endS - startS);
+    }
+    onProgress?.(endS - startS, endS - startS);
+    return { times, act, events: detectEvents(times, act, opts) };
+  }
+  function contextBox(roi, W, H, grow = 0.6) {
+    const cx = roi.x + roi.w / 2, cy = roi.y + roi.h / 2;
+    const w = Math.min(W, roi.w * (1 + grow) + 40), h = Math.min(H, roi.h * (1 + grow) + 40);
+    const x = Math.max(0, Math.min(W - w, cx - w / 2)), y = Math.max(0, Math.min(H - h, cy - h / 2));
+    return { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) };
+  }
+  function toJpeg(canvas, quality = 0.82) {
+    return canvas.toDataURL("image/jpeg", quality);
+  }
+  async function snapshot(video, roi, tS, maxW = 240) {
+    await seek(video, tS);
+    const box = contextBox(roi, video.videoWidth, video.videoHeight);
+    const s = Math.min(1, maxW / box.w);
+    const c = document.createElement("canvas");
+    c.width = Math.round(box.w * s);
+    c.height = Math.round(box.h * s);
+    const ctx = c.getContext("2d");
+    ctx.drawImage(video, box.x, box.y, box.w, box.h, 0, 0, c.width, c.height);
+    ctx.strokeStyle = "#ffd400";
+    ctx.lineWidth = 2;
+    ctx.strokeRect((roi.x - box.x) * s, (roi.y - box.y) * s, roi.w * s, roi.h * s);
+    return toJpeg(c, 0.75);
+  }
+  async function evidence(video, roi, tS, labelLines = []) {
+    await seek(video, tS);
+    const W = video.videoWidth, H = video.videoHeight;
+    const full = document.createElement("canvas");
+    full.width = W;
+    full.height = H;
+    full.getContext("2d").drawImage(video, 0, 0);
+    const marked = document.createElement("canvas");
+    marked.width = W;
+    marked.height = H;
+    const m = marked.getContext("2d");
+    m.drawImage(full, 0, 0);
+    m.strokeStyle = "#ffd400";
+    m.lineWidth = Math.max(2, W / 400);
+    m.strokeRect(roi.x, roi.y, roi.w, roi.h);
+    const fs = Math.max(14, Math.round(H / 32));
+    m.font = `bold ${fs}px sans-serif`;
+    const pad = 6, lh = fs + 4;
+    const tw = Math.max(0, ...labelLines.map((l) => m.measureText(l).width));
+    const bx = Math.min(W - tw - 2 * pad, roi.x), by = Math.max(0, roi.y - labelLines.length * lh - 2 * pad);
+    m.fillStyle = "rgba(0,0,0,.7)";
+    m.fillRect(bx, by, tw + 2 * pad, labelLines.length * lh + 2 * pad);
+    m.fillStyle = "#ffd400";
+    labelLines.forEach((l, i) => m.fillText(l, bx + pad, by + pad + (i + 1) * lh - 4));
+    const box = contextBox(roi, W, H);
+    const crop = document.createElement("canvas");
+    crop.width = box.w;
+    crop.height = box.h;
+    crop.getContext("2d").drawImage(full, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
+    return { full: toJpeg(full), marked: toJpeg(marked), crop: toJpeg(crop, 0.9) };
+  }
+
+  // browser/clocksync.mjs
+  var clocksync_exports = {};
+  __export(clocksync_exports, {
+    defaultClockRoi: () => defaultClockRoi,
+    learnClock: () => learnClock,
+    syncClock: () => syncClock
+  });
+
+  // browser/core/clock.mjs
+  var clock_exports = {};
+  __export(clock_exports, {
+    CLOCK_RE: () => CLOCK_RE,
+    formatLike: () => formatLike,
+    fromSec: () => fromSec,
+    isoToSec: () => isoToSec,
+    labelLayout: () => labelLayout,
+    normalizeText: () => normalizeText,
+    parseClock: () => parseClock,
+    secToIso: () => secToIso,
+    toSec: () => toSec
+  });
+  var EPOCH_MS = Date.UTC(2e3, 0, 1);
+  var WEEKDAYS = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+  var WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  var CLOCK_RE = /(\d{1,4})[-/.](\d{1,2})[-/.](\d{1,4})\s*([A-Za-z]{3})?[A-Za-z]*\s*(\d{1,2}):(\d{2}):(\d{2})/d;
+  function toSec(y, mo, d, h = 0, mi = 0, s = 0) {
+    const ms = Date.UTC(y, mo - 1, d, h, mi, s);
+    const t = new Date(ms);
+    if (t.getUTCFullYear() !== y || t.getUTCMonth() !== mo - 1 || t.getUTCDate() !== d || t.getUTCHours() !== h || t.getUTCMinutes() !== mi || t.getUTCSeconds() !== s) return null;
+    return (ms - EPOCH_MS) / 1e3;
+  }
+  function fromSec(sec) {
+    const t = new Date(EPOCH_MS + Math.round(sec * 1e3));
+    return {
+      y: t.getUTCFullYear(),
+      mo: t.getUTCMonth() + 1,
+      d: t.getUTCDate(),
+      h: t.getUTCHours(),
+      mi: t.getUTCMinutes(),
+      s: t.getUTCSeconds(),
+      ms: t.getUTCMilliseconds(),
+      weekday: t.getUTCDay()
+    };
+  }
+  var p2 = (n) => String(n).padStart(2, "0");
+  function secToIso(sec, withMs = false) {
+    const f = fromSec(sec);
+    const base = `${f.y}-${p2(f.mo)}-${p2(f.d)}T${p2(f.h)}:${p2(f.mi)}:${p2(f.s)}`;
+    return withMs ? `${base}.${String(f.ms).padStart(3, "0")}` : base;
+  }
+  function isoToSec(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?$/.exec(String(iso).trim());
+    if (!m) return null;
+    const base = toSec(+m[1], +m[2], +m[3], +m[4], +m[5], +m[6]);
+    return base === null ? null : base + (m[7] ? Number("0." + m[7]) : 0);
+  }
+  function normalizeText(parts) {
+    let s = (Array.isArray(parts) ? parts : [parts]).map((p) => String(p).trim()).join(" ");
+    s = s.replace(/\s*-\s*-?\s*/g, "-").replace(/\s*:\s*/g, ":");
+    s = s.replace(/[Oo](?=\d)|(?<=\d)[Oo]/g, "0");
+    return s.replace(/\s+/g, " ").trim();
+  }
+  function parseClock(text, prefer = "MDY") {
+    const m = CLOCK_RE.exec(text);
+    if (!m) return { wall: null, ambiguous: false, order: null };
+    const [a, b, c] = [+m[1], +m[2], +m[3]];
+    const wd = m[4] ? WEEKDAYS[m[4].toLowerCase()] : void 0;
+    const [hh, mm, ss] = [+m[5], +m[6], +m[7]];
+    const orders = { YMD: [a, b, c], MDY: [c, a, b], DMY: [c, b, a] };
+    let cands = {};
+    for (const [name, [y, mo, d]] of Object.entries(orders)) {
+      if (y < 2e3) continue;
+      const sec = toSec(y, mo, d, hh, mm, ss);
+      if (sec !== null) cands[name] = sec;
+    }
+    if (wd !== void 0) {
+      const matched = Object.fromEntries(Object.entries(cands).filter(([, s]) => fromSec(s).weekday === wd));
+      if (Object.keys(matched).length) cands = matched;
+    }
+    const names = Object.keys(cands);
+    if (!names.length) return { wall: null, ambiguous: false, order: null };
+    const distinct = new Set(Object.values(cands));
+    if (distinct.size === 1) {
+      const order2 = names.includes(prefer) ? prefer : names.sort()[0];
+      return { wall: cands[order2], ambiguous: false, order: order2 };
+    }
+    const order = names.includes(prefer) ? prefer : names.sort()[0];
+    return { wall: cands[order], ambiguous: true, order };
+  }
+  function labelLayout(label, prefer = "MDY") {
+    const m = CLOCK_RE.exec(label);
+    if (!m) return null;
+    const parsed = parseClock(label, prefer);
+    if (parsed.wall === null) return null;
+    const idx = m.indices;
+    const group = (i) => ({ start: idx[i][0], end: idx[i][1] });
+    return {
+      label,
+      order: parsed.order,
+      wall: parsed.wall,
+      ambiguous: parsed.ambiguous,
+      groups: { a: group(1), b: group(2), c: group(3), wd: m[4] ? group(4) : null, h: group(5), mi: group(6), s: group(7) }
+    };
+  }
+  function formatLike(layout, sec) {
+    const f = fromSec(sec);
+    const parts = { YMD: [f.y, f.mo, f.d], MDY: [f.mo, f.d, f.y], DMY: [f.d, f.mo, f.y] }[layout.order];
+    const g = layout.groups;
+    const chars = layout.label.split("");
+    const put = (grp, val) => {
+      const w = grp.end - grp.start;
+      const s = String(val).padStart(w, "0").slice(-w);
+      for (let i = 0; i < w; i++) chars[grp.start + i] = s[i];
+    };
+    put(g.a, parts[0]);
+    put(g.b, parts[1]);
+    put(g.c, parts[2]);
+    put(g.h, f.h);
+    put(g.mi, f.mi);
+    put(g.s, f.s);
+    if (g.wd) {
+      const orig = layout.label.slice(g.wd.start, g.wd.end);
+      let name = WEEKDAY_NAMES[f.weekday];
+      if (orig === orig.toUpperCase()) name = name.toUpperCase();
+      put(g.wd, name);
+    }
+    return chars.join("");
+  }
+
+  // browser/core/osd.mjs
+  var CW = 10;
+  var CH = 20;
+  function percentile(data, q) {
+    const hist = new Uint32Array(256);
+    for (let i = 0; i < data.length; i++) hist[data[i]]++;
+    let k = Math.floor(q * (data.length - 1)), acc = 0;
+    for (let v = 0; v < 256; v++) {
+      acc += hist[v];
+      if (acc > k) return v;
+    }
+    return 255;
+  }
+  var isDigit = (c) => c >= "0" && c <= "9";
+  var isAlnum = (c) => /[0-9A-Za-z]/.test(c);
+  function fitGrid(img, label) {
+    const L = label.length;
+    const thr = Math.max(170, percentile(img.data, 0.99) - 45);
+    const { w, h, data } = img;
+    const rowSum = new Float32Array(h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (data[y * w + x] >= thr) rowSum[y]++;
+    const rmax = Math.max(...rowSum);
+    if (!rmax) return null;
+    let best = { len: 0, y0: 0, y1: 0 };
+    for (let y = 0, start = -1, gap = 0; y <= h; y++) {
+      const on = y < h && rowSum[y] > 0.1 * rmax;
+      if (on) {
+        if (start < 0) start = y;
+        gap = 0;
+      } else if (start >= 0 && ++gap > 1) {
+        const end = y - gap + 1;
+        if (end - start > best.len) best = { len: end - start, y0: start, y1: end };
+        start = -1;
+        gap = 0;
+      }
+    }
+    const { y0, y1 } = best;
+    const bandH = y1 - y0;
+    if (bandH < 5) return null;
+    const col = new Float32Array(w);
+    for (let y = y0; y < y1; y++) for (let x = 0; x < w; x++) if (data[y * w + x] >= thr) col[x] += 1 / bandH;
+    const prefix = new Float32Array(w + 1);
+    for (let x = 0; x < w; x++) prefix[x + 1] = prefix[x] + col[x];
+    const mean = (a, b) => {
+      const lo = Math.max(0, Math.min(w, Math.round(a))), hi = Math.max(0, Math.min(w, Math.round(b)));
+      return hi > lo ? (prefix[hi] - prefix[lo]) / (hi - lo) : 0;
+    };
+    const starts = [];
+    for (let x = 0; x < w; x++) if (col[x] > 0 && (x === 0 || col[x - 1] === 0)) starts.push(x);
+    const pmax = w / (L - 1), pmin = Math.max(4, bandH * 0.25);
+    let top = null;
+    for (let p = pmin; p <= pmax; p += 0.25) {
+      for (const rs of starts) {
+        for (let k = 0; k < L; k++) {
+          if (!isAlnum(label[k])) continue;
+          for (const lead of [0.05, 0.12, 0.2]) {
+            const x0 = rs - k * p - lead * p;
+            if (x0 < -p * 0.5 || x0 + L * p > w + p * 0.5) continue;
+            let s = 0;
+            for (let j = 0; j < L; j++) {
+              const a = x0 + j * p, c = label[j];
+              if (c === " ") s -= 2 * mean(a, a + p);
+              else if (isAlnum(c)) s += Math.min(mean(a + 0.2 * p, a + 0.8 * p), 0.5);
+              if (j > 0 && isAlnum(c) && isAlnum(label[j - 1])) s -= 2 * mean(a - 0.08 * p, a + 0.08 * p + 1);
+            }
+            if (!top || s > top.score) top = { x0, pitch: p, score: s };
+          }
+        }
+      }
+    }
+    return top ? { ...top, y0, y1, thr, label } : null;
+  }
+  function cellVector(img, grid, k, polarity = "white") {
+    const { x0, pitch, y0, y1 } = grid;
+    const xa = x0 + k * pitch, ya = y0, cw = pitch, ch = y1 - y0;
+    const bg = cellBackground(img, xa, ya, cw, ch);
+    const sign = polarity === "black" ? -1 : 1, gap = 20, span = 50;
+    const v = new Float32Array(CW * CH);
+    for (let j = 0; j < CH; j++) {
+      for (let i = 0; i < CW; i++) {
+        const xs = xa + i / CW * cw, xe = xa + (i + 1) / CW * cw;
+        const ys = ya + j / CH * ch, ye = ya + (j + 1) / CH * ch;
+        let s = 0, n = 0;
+        for (let y = Math.floor(ys); y < Math.max(Math.floor(ys) + 1, Math.ceil(ye)); y++) {
+          for (let x = Math.floor(xs); x < Math.max(Math.floor(xs) + 1, Math.ceil(xe)); x++) {
+            if (x < 0 || y < 0 || x >= img.w || y >= img.h) continue;
+            const g = img.data[y * img.w + x];
+            s += Math.min(1, Math.max(0, (sign * (g - bg) - gap) / span));
+            n++;
+          }
+        }
+        v[j * CW + i] = n ? s / n : 0;
+      }
+    }
+    let mass = 0;
+    for (const x of v) mass += x;
+    const out = zNorm(v);
+    out.mass = mass / v.length;
+    return out;
+  }
+  function cellVectorAuto(img, grid, k) {
+    const w = cellVector(img, grid, k, "white"), b = cellVector(img, grid, k, "black");
+    return w.mass >= b.mass ? w : b;
+  }
+  function cellBackground(img, xa, ya, cw, ch) {
+    const vals = [];
+    for (let y = Math.max(0, Math.floor(ya)); y < Math.min(img.h, Math.ceil(ya + ch)); y++) {
+      for (let x = Math.max(0, Math.floor(xa)); x < Math.min(img.w, Math.ceil(xa + cw)); x++) vals.push(img.data[y * img.w + x]);
+    }
+    if (!vals.length) return 0;
+    vals.sort((a, b) => a - b);
+    return vals[vals.length >> 1];
+  }
+  function zNorm(v) {
+    let m = 0;
+    for (const x of v) m += x;
+    m /= v.length;
+    let sd = 0;
+    for (const x of v) sd += (x - m) ** 2;
+    sd = Math.sqrt(sd / v.length) || 1;
+    const o = new Float32Array(v.length);
+    for (let i = 0; i < v.length; i++) o[i] = (v[i] - m) / sd;
+    return o;
+  }
+  function ncc(a, b) {
+    let s = 0;
+    for (let i = 0; i < a.length; i++) s += a[i] * b[i];
+    return s / a.length;
+  }
+  function buildTemplates(grid, samples) {
+    const acc = {};
+    for (const { img, text } of samples) {
+      for (let k = 0; k < text.length; k++) {
+        const c = text[k];
+        if (!isDigit(c) || !isDigit(grid.label[k])) continue;
+        const v = cellVectorAuto(img, grid, k);
+        (acc[c] = acc[c] || []).push(v);
+      }
+    }
+    const digits = {};
+    for (const [c, vs] of Object.entries(acc)) {
+      const m = new Float32Array(vs[0].length);
+      for (const v of vs) for (let i = 0; i < m.length; i++) m[i] += v[i] / vs.length;
+      digits[c] = zNorm(m);
+    }
+    return { digits, missing: "0123456789".split("").filter((d) => !digits[d]) };
+  }
+  function readOsd(img, grid, templates, { minScore = 0.55, minMargin = 0.08 } = {}) {
+    const label = grid.label;
+    const out = label.split("");
+    let minS = Infinity, minM = Infinity;
+    for (let k = 0; k < label.length; k++) {
+      if (!isDigit(label[k])) continue;
+      let b1 = -Infinity, b2 = -Infinity, d1 = "?";
+      for (const pol of ["white", "black"]) {
+        const v = cellVector(img, grid, k, pol);
+        let p1 = -Infinity, p22 = -Infinity, pd = "?";
+        for (const [d, t] of Object.entries(templates.digits)) {
+          const s = ncc(v, t);
+          if (s > p1) {
+            p22 = p1;
+            p1 = s;
+            pd = d;
+          } else if (s > p22) p22 = s;
+        }
+        if (p1 > b1) {
+          b1 = p1;
+          b2 = p22;
+          d1 = pd;
+        }
+      }
+      out[k] = d1;
+      minS = Math.min(minS, b1);
+      minM = Math.min(minM, b1 - (b2 === -Infinity ? -1 : b2));
+    }
+    return { text: out.join(""), minScore: minS, minMargin: minM, ok: minS >= minScore && minM >= minMargin };
+  }
+  function cellChange(imgA, imgB, grid, k) {
+    return 1 - ncc(cellVectorAuto(imgA, grid, k), cellVectorAuto(imgB, grid, k));
+  }
+
+  // browser/core/sync.mjs
+  var sync_exports = {};
+  __export(sync_exports, {
+    SyncResult: () => SyncResult,
+    buildSync: () => buildSync,
+    coarseOffset: () => coarseOffset,
+    splitSegments: () => splitSegments
+  });
+  var median2 = (a) => {
+    const s = [...a].sort((x, y) => x - y);
+    const n = s.length;
+    return n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2;
+  };
+  var off = (s) => s.wall === null || s.wall === void 0 ? null : s.wall - s.videoS;
+  function splitSegments(samples, tolS = 1.5) {
+    const valid = samples.filter((s) => off(s) !== null);
+    const warnings = [];
+    if (!valid.length) return { groups: [], warnings: ["Không đọc được đồng hồ ở mẫu nào"] };
+    const groups = [[valid[0]]];
+    for (let i = 1; i < valid.length; i++) {
+      const s = valid[i];
+      const cur = groups[groups.length - 1];
+      const ref = median2(cur.map(off));
+      if (Math.abs(off(s) - ref) <= tolS) {
+        cur.push(s);
+        continue;
+      }
+      const nxt = valid[i + 1];
+      if (nxt && Math.abs(off(nxt) - ref) <= tolS) {
+        warnings.push(`Bỏ mẫu ${s.videoS.toFixed(1)}s: đọc "${s.text}" lệch, có thể đọc sai`);
+      } else {
+        warnings.push(`Đồng hồ nhảy ${(off(s) - ref >= 0 ? "+" : "") + (off(s) - ref).toFixed(1)}s trong khoảng video ${cur[cur.length - 1].videoS.toFixed(1)}s–${s.videoS.toFixed(1)}s (mất hình hoặc nối video)`);
+        groups.push([s]);
+      }
+    }
+    return { groups, warnings };
+  }
+  function coarseOffset(group) {
+    const offs = group.map(off);
+    const lo = Math.max(...offs), hi = Math.min(...offs) + 1;
+    if (lo >= hi) {
+      return {
+        offset: median2(offs) + 0.5,
+        uncertainty: (Math.max(...offs) - Math.min(...offs)) / 2 + 0.5,
+        warnings: [`Offset trong đoạn không nhất quán (dao động ${(lo - hi + 1).toFixed(2)}s) – có thể đồng hồ trôi`]
+      };
+    }
+    return { offset: (lo + hi) / 2, uncertainty: (hi - lo) / 2, warnings: [] };
+  }
+  var SyncResult = class _SyncResult {
+    constructor({ durationS, segments = [], samples = [], warnings = [] }) {
+      Object.assign(this, { durationS, segments, samples, warnings });
+    }
+    toWall(videoS) {
+      const seg = this.segments.find((g) => g.videoStart <= videoS && videoS <= g.videoEnd);
+      return seg ? seg.offset + videoS : null;
+    }
+    /** {videoS|null, note, uncertainty?} */
+    toVideo(wallSec) {
+      for (const g of this.segments) {
+        const v = wallSec - g.offset;
+        if (v >= g.videoStart - 1e-6 && v <= g.videoEnd + 1e-6) return { videoS: v, uncertainty: g.uncertainty, note: `±${g.uncertainty.toFixed(2)}s (${g.method})` };
+      }
+      if (this.segments.length) {
+        const first = this.segments[0], last = this.segments[this.segments.length - 1];
+        if (wallSec < first.offset + first.videoStart) return { videoS: null, note: "trước khi video bắt đầu" };
+        if (wallSec > last.offset + last.videoEnd) return { videoS: null, note: "sau khi video kết thúc" };
+      }
+      return { videoS: null, note: "rơi vào khoảng đồng hồ nhảy/chưa xác định giữa hai đoạn" };
+    }
+    /** Khoảng giờ thật mỗi đoạn, dạng chuỗi để hiển thị. */
+    describe() {
+      return this.segments.map((g) => ({
+        ...g,
+        wallStart: secToIso(g.offset + g.videoStart, true),
+        wallEnd: secToIso(g.offset + g.videoEnd, true)
+      }));
+    }
+    toJSON() {
+      return { durationS: this.durationS, segments: this.segments, samples: this.samples, warnings: this.warnings };
+    }
+    static fromJSON(o) {
+      return new _SyncResult(o);
+    }
+  };
+  async function buildSync(samples, durationS, { tolS = 1.5, refine = null } = {}) {
+    const { groups, warnings } = splitSegments(samples, tolS);
+    const segments = [];
+    for (let gi = 0; gi < groups.length; gi++) {
+      const g = groups[gi];
+      const c = coarseOffset(g);
+      warnings.push(...c.warnings);
+      let { offset, uncertainty } = c, method = "ocr-coarse";
+      if (refine) {
+        const fine = await refine(g);
+        if (fine && Math.abs(fine.offset - offset) <= uncertainty + 0.1) {
+          ({ offset, uncertainty } = fine);
+          method = "ocr+tick";
+        } else if (fine) {
+          warnings.push(`Căn khung hình đoạn ${gi + 1} lệch so với OCR (${(fine.offset - offset).toFixed(2)}s), giữ kết quả OCR`);
+        }
+      }
+      segments.push({
+        videoStart: gi === 0 ? 0 : g[0].videoS,
+        videoEnd: gi === groups.length - 1 ? durationS : g[g.length - 1].videoS,
+        offset,
+        uncertainty,
+        method,
+        nSamples: g.length
+      });
+    }
+    return new SyncResult({ durationS, segments, samples, warnings });
+  }
+
+  // browser/clocksync.mjs
+  var DEFAULT_ROI_FRAC = { x: 0, y: 20 / 720, w: 380 / 1280, h: 70 / 720 };
+  function defaultClockRoi(W, H) {
+    return {
+      x: Math.round(DEFAULT_ROI_FRAC.x * W),
+      y: Math.round(DEFAULT_ROI_FRAC.y * H),
+      w: Math.round(DEFAULT_ROI_FRAC.w * W),
+      h: Math.round(DEFAULT_ROI_FRAC.h * H)
+    };
+  }
+  var _c = null;
+  function grabGray(video, roi) {
+    _c = _c || document.createElement("canvas");
+    _c.width = roi.w;
+    _c.height = roi.h;
+    const ctx = _c.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(video, roi.x, roi.y, roi.w, roi.h, 0, 0, roi.w, roi.h);
+    const d = ctx.getImageData(0, 0, roi.w, roi.h).data;
+    const g = new Uint8Array(roi.w * roi.h);
+    for (let i = 0, j = 0; j < g.length; i += 4, j++) g[j] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    return { w: roi.w, h: roi.h, data: g };
+  }
+  async function frameAt(video, roi, t) {
+    const r = await seek(video, t);
+    return { t: r.mediaTimeS ?? t, img: grabGray(video, roi) };
+  }
+  async function findTick(video, roi, grid, secIdx, t, fps = 25) {
+    const base = await frameAt(video, roi, t);
+    let prevT = base.t;
+    for (let j = 1; j <= Math.ceil(fps * 1.3); j++) {
+      const f = await frameAt(video, roi, t + j / fps);
+      if (f.t === prevT) continue;
+      if (cellChange(base.img, f.img, grid, secIdx) > 0.35) return { tPrev: prevT, tTick: f.t, img: f.img };
+      prevT = f.t;
+    }
+    return null;
+  }
+  async function learnClock(video, label, atS, roi = defaultClockRoi(video.videoWidth, video.videoHeight)) {
+    const layout = labelLayout(label.trim());
+    if (!layout) throw new Error('Không hiểu chữ đồng hồ đã nhập. Nhập đúng như trên hình, vd "11-04-2026 Wed 16:48:42".');
+    const f0 = await frameAt(video, roi, atS);
+    const grid = fitGrid(f0.img, layout.label);
+    if (!grid) throw new Error("Không thấy chữ đồng hồ trong vùng góc trên trái.");
+    const secIdx = layout.groups.s.end - 1;
+    const tick = await findTick(video, roi, grid, secIdx, atS);
+    if (!tick) throw new Error("Không thấy chữ số giây đổi. Kiểm tra lại chữ đã nhập hoặc chọn khung khác.");
+    const samples = [{ img: f0.img, text: layout.label }];
+    for (let j = 0; j < 12; j++) {
+      const t = tick.tTick + j + 0.5;
+      if (t >= video.duration) break;
+      const f = await frameAt(video, roi, t);
+      samples.push({ img: f.img, text: formatLike(layout, layout.wall + 1 + j) });
+    }
+    const templates = buildTemplates(grid, samples);
+    if (templates.missing.length) throw new Error("Chưa học đủ chữ số " + templates.missing.join(",") + ". Chọn khung khác (cần ≥12 giây video sau đó).");
+    for (const s of samples) {
+      const r = readOsd(s.img, grid, templates);
+      if (r.text !== s.text) throw new Error(`Đồng hồ không chạy liên tục sau khung đã chọn (đọc "${r.text}", mong "${s.text}"). Chọn khung khác.`);
+    }
+    return { roi, grid, templates, layout };
+  }
+  async function syncClock(video, clock, { stepS = 15, onProgress, signal } = {}) {
+    const { roi, grid, templates, layout } = clock;
+    const dur = video.duration;
+    const ts = [];
+    for (let t = 0.2; t < dur - 0.3; t += stepS) ts.push(t);
+    ts.push(Math.max(0, dur - 0.3));
+    const samples = [];
+    for (let i = 0; i < ts.length; i++) {
+      if (signal?.aborted) throw new DOMException("Đã hủy", "AbortError");
+      const f = await frameAt(video, roi, ts[i]);
+      const r = readOsd(f.img, grid, templates);
+      const wall = r.ok ? parseClock(r.text, layout.order).wall : null;
+      samples.push({ videoS: f.t, wall, text: r.text });
+      onProgress?.(i + 1, ts.length);
+    }
+    const secIdx = layout.groups.s.end - 1;
+    return buildSync(samples, dur, {
+      refine: async (group) => {
+        const mid = group[group.length >> 1];
+        const tk = await findTick(video, roi, grid, secIdx, mid.videoS);
+        if (!tk) return null;
+        const r = readOsd(tk.img, grid, templates);
+        const wall = r.ok ? parseClock(r.text, layout.order).wall : null;
+        if (wall === null) return null;
+        const lo = wall - tk.tTick, hi = wall - tk.tPrev;
+        return { offset: (lo + hi) / 2, uncertainty: (hi - lo) / 2 };
+      }
+    });
+  }
+
+  // browser/entry.mjs
+  var version = "0.1.0";
+  return __toCommonJS(entry_exports);
+})();
+</script>

@@ -55,10 +55,25 @@ function getResultSheet_() {
 // ---------------------------------------------------------------------------
 // Giao diện
 // ---------------------------------------------------------------------------
-function doGet() {
-  return HtmlService.createHtmlOutputFromFile('Index')
-    .setTitle('Đếm kiện - tra cứu')
+function doGet(e) {
+  var page = (e && e.parameter && e.parameter.page) || '';
+  var base = ScriptApp.getService().getUrl();
+  var t;
+  if (page === 'dem') {
+    t = HtmlService.createTemplateFromFile('Dem');
+    t.baseUrl = base;
+    return t.evaluate().setTitle('Đếm kiện vào bao')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  }
+  t = HtmlService.createTemplateFromFile('Index');
+  t.demUrl = base + '?page=dem';
+  return t.evaluate().setTitle('Đếm kiện - tra cứu')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+/** Dùng trong template: <?!= include('LogicBundle') ?> */
+function include(name) {
+  return HtmlService.createHtmlOutputFromFile(name).getContent();
 }
 
 function checkViewKey_(viewKey) {
@@ -100,6 +115,18 @@ function uiGetResult(viewKey, id) {
     }
   });
   return r;
+}
+
+/** Trang Đếm kiện lưu kết quả đánh dấu (cùng cấu trúc bản ghi với API submitResult). */
+function uiSaveMark(viewKey, record) {
+  checkViewKey_(viewKey);
+  return submitResult_(record || {});
+}
+
+/** Trang Đếm kiện tải ảnh bằng chứng (từng ảnh một). */
+function uiUploadEvidence(viewKey, data) {
+  checkViewKey_(viewKey);
+  return uploadEvidence_(data || {});
 }
 
 function uiPackingTime(viewKey, orderCode) {

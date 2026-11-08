@@ -58,7 +58,10 @@
 <main>
   <header class="top">
     <div><p class="eyebrow">TRA CỨU KHO</p><h1>Đếm kiện hàng</h1></div>
-    <button id="change-key" type="button" hidden>Đổi khóa</button>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <a href="<?= demUrl ?>" target="_top" style="font-weight:650;color:var(--blue)">+ Đếm kiện mới</a>
+      <button id="change-key" type="button" hidden>Đổi khóa</button>
+    </div>
   </header>
   <section id="login" class="panel" aria-labelledby="login-title">
     <h2 id="login-title">Nhập khóa xem</h2>

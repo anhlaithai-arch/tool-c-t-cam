@@ -9,3 +9,5 @@ data/
 *.mkv
 *.mov
 .env
+node_modules/
+dist/
