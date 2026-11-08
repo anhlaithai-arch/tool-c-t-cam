@@ -342,7 +342,7 @@ var CountingApp = (() => {
     }
     return tot ? n / tot : 0;
   }
-  function detectColorPeaks(times, sig, { k = 2.5, minThr = 0.035, winS = 2.5, sepS = 0.7 } = {}) {
+  function detectColorPeaks(times, sig, { k = 2.5, minThr = 0.035, winS = 2.5, sepS = 0.7, madWindow = null } = {}) {
     const n = sig.length;
     if (n < 3) return [];
     const base = new Float64Array(n);
@@ -353,8 +353,10 @@ var CountingApp = (() => {
       base[i] = median(sig.slice(lo, hi));
     }
     const ex = sig.map((v, i) => v - base[i]);
-    const med = median(ex);
-    const mad = median(ex.map((v) => Math.abs(v - med))) + 1e-6;
+    const exW = madWindow ? ex.filter((_, i) => times[i] >= madWindow[0] && times[i] <= madWindow[1]) : ex;
+    const ref = exW.length >= 10 ? exW : ex;
+    const med = median(ref);
+    const mad = median(ref.map((v) => Math.abs(v - med))) + 1e-6;
     const thr = Math.max(minThr, k * mad);
     const peaks = [];
     for (let i = 1; i < n - 1; i++) {

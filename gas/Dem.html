@@ -496,7 +496,10 @@
     }
     // Ứng viên: đỉnh màu kiện trong miệng bao (đo trên video thật tốt hơn chuyển động khi người ngồi sát bao).
     // Nếu quá ít đỉnh màu (bao không xanh/khoanh sai) thì dùng lượt chuyển động.
-    const peaks = st.scan.colorPeaks || [];
+    const vMin = Math.min(...inVid.map((x) => x.v)), vMax = Math.max(...inVid.map((x) => x.v));
+    const peaks = st.scan.parcel
+      ? A.motion.detectColorPeaks(st.scan.times, st.scan.parcel, { madWindow: [vMin - 5, vMax + 10] })
+      : (st.scan.colorPeaks || []);
     const useColor = peaks.length >= 0.5 * inVid.length;
     if (useColor && !st.scan.usingColor) {
       st.scan.motionEvents = st.scan.events;

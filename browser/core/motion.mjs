@@ -166,7 +166,7 @@ export function parcelFraction(rgba, { minV = 110, greenHue = [70, 180], greenSa
  * Đỉnh màu kiện: vượt nền trượt (trung vị ±winS) hơn max(minThr, k·MAD), cực đại cục bộ, cách nhau >= sepS.
  * Đo trên video thật (TO 28 đơn, camera B): k=2.5 bắt đủ 28/28 lượt bỏ kiện của người bắn hàng.
  */
-export function detectColorPeaks(times, sig, { k = 2.5, minThr = 0.035, winS = 2.5, sepS = 0.7 } = {}) {
+export function detectColorPeaks(times, sig, { k = 2.5, minThr = 0.035, winS = 2.5, sepS = 0.7, madWindow = null } = {}) {
   const n = sig.length;
   if (n < 3) return [];
   const base = new Float64Array(n);
@@ -177,8 +177,11 @@ export function detectColorPeaks(times, sig, { k = 2.5, minThr = 0.035, winS = 2
     base[i] = median(sig.slice(lo, hi));
   }
   const ex = sig.map((v, i) => v - base[i]);
-  const med = median(ex);
-  const mad = median(ex.map((v) => Math.abs(v - med))) + 1e-6;
+  // Ngưỡng tính trong khoảng đang bỏ kiện (vd quanh các lần quét FMS) để đoạn dựng/buộc bao không đẩy ngưỡng lên
+  const exW = madWindow ? ex.filter((_, i) => times[i] >= madWindow[0] && times[i] <= madWindow[1]) : ex;
+  const ref = exW.length >= 10 ? exW : ex;
+  const med = median(ref);
+  const mad = median(ref.map((v) => Math.abs(v - med))) + 1e-6;
   const thr = Math.max(minThr, k * mad);
   const peaks = [];
   for (let i = 1; i < n - 1; i++) {
