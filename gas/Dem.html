@@ -125,6 +125,7 @@
     <div class="panel">
       <h2>3. Đánh dấu đơn</h2>
       <div class="row">
+        <button id="find-bag" type="button" disabled>AI tự tìm bao</button>
         <button id="mark-fms" type="button" class="primary" disabled>Đánh dấu theo FMS</button>
         <div><label for="fms-offset">Lệch giờ camera so với FMS (giây, để trống = tự tính)</label><input id="fms-offset" type="text" placeholder="tự tính"></div>
       </div>
@@ -141,6 +142,7 @@
         <div class="big" id="res-big"></div>
         <div id="res-meta" class="muted"></div>
         <img id="res-img" alt="Ảnh đánh dấu kiện">
+        <img id="res-crop" alt="Dải 3 khung quanh lúc bỏ kiện" style="margin-top:6px">
         <div class="row" style="margin-top:8px">
           <div><label for="key">Khóa nhóm</label><input id="key" type="password" autocomplete="current-password"></div>
           <button id="save" type="button" class="primary">Lưu lên webapp</button>
@@ -205,7 +207,8 @@
   function refreshButtons() {
     $('scan').disabled = st.busy || !st.h || !st.roi;
     $('mark').disabled = st.busy || !st.scan;
-    $('mark-fms').disabled = st.busy || !st.h || !st.roi || !st.fms || !st.fms.scans.length;
+    $('mark-fms').disabled = st.busy || !st.h || !st.fms || !st.fms.scans.length;
+    $('find-bag').disabled = st.busy || !st.h || !st.fms || !st.fms.scans.length;
     $('clock-run').disabled = st.busy || !st.h;
   }
 
@@ -413,7 +416,7 @@
       ($('order').value || 'Đơn ?') + ' · ' + (closed ? `${it.label}/${n.total}` : `${it.label}/${n.total}*`),
       `${$('camera').value || ''} ${fmt(it.peakS)}${st.sync ? ' ' + wallStr(it.peakS) : ''}`.trim(),
     ]);
-    $('res-img').src = st.ev.marked; $('result').hidden = false;
+    $('res-img').src = st.ev.marked; $('res-crop').src = st.ev.crop; $('result').hidden = false;
     msg('mark-msg', closed ? '' : '* phiên chưa chốt: tổng có thể còn thay đổi.');
   }
 
@@ -472,19 +475,46 @@
     }
     box.append(ol);
   }
-  $('mark-fms').addEventListener('click', markFms);
-  async function markFms() {
-    const p = fmsPos();
-    if (!p) { msg('mark-msg', 'Bắn mã đơn có trong dữ liệu FMS trước.', 'err'); return; }
-    if (!st.sync || !st.sync.segments.length) { msg('mark-msg', 'Cần đồng bộ giờ camera trước (mục "Đồng bộ giờ camera") để đổi giờ quét FMS sang vị trí trong video.', 'err'); return; }
+  function scansInVideo(p) {
     const seg = st.sync.segments[0];
     const raw = p.bagScans.map((s) => {
       const r = st.sync.toVideo(s.time);
       return { order: s.order, index: s.index, time: s.time, v: r.videoS != null ? r.videoS : s.time - seg.offset };
     });
     const dur = st.h.durationS;
-    const inVid = raw.filter((s) => s.v > -120 && s.v < dur + 120);
-    if (!inVid.length) { msg('mark-msg', 'Giờ quét của bao này không nằm trong video đang mở (kể cả lệch ±2 phút). Chọn đúng video.', 'err'); return; }
+    return { raw, inVid: raw.filter((s) => s.v > -120 && s.v < dur + 120), dur };
+  }
+  function needFmsReady() {
+    const p = fmsPos();
+    if (!p) { msg('mark-msg', 'Bắn mã đơn có trong dữ liệu FMS trước.', 'err'); return null; }
+    if (!st.sync || !st.sync.segments.length) { msg('mark-msg', 'Cần đồng bộ giờ camera trước (mục "Đồng bộ giờ camera") để đổi giờ quét FMS sang vị trí trong video.', 'err'); return null; }
+    const r = scansInVideo(p);
+    if (!r.inVid.length) { msg('mark-msg', 'Giờ quét của bao này không nằm trong video đang mở (kể cả lệch ±2 phút). Chọn đúng video.', 'err'); return null; }
+    return { p, ...r };
+  }
+  $('find-bag').addEventListener('click', () => findBag());
+  async function findBag() {
+    const ready = needFmsReady(); if (!ready) return false;
+    video.pause(); setBusy(true); $('prog').hidden = false; $('prog').value = 0;
+    st.abort = new AbortController(); $('cancel').hidden = false;
+    try {
+      msg('mark-msg', `AI đang tìm chỗ bỏ kiện khớp nhịp ${ready.inVid.length} lần quét của bao ${ready.p.bag}…`);
+      const r = await A.bagfinder.findBagForScans(video, ready.inVid.map((s) => s.v), {
+        signal: st.abort.signal, onProgress: (d, tot) => { $('prog').value = d / tot; } });
+      st.bagFind = r;
+      setRoi({ x: Math.round(r.box.x), y: Math.round(r.box.y), w: Math.round(r.box.w), h: Math.round(r.box.h) });
+      const strong = r.z >= 4 && r.hits >= 0.8 * r.n;
+      msg('mark-msg', `AI chọn vùng x=${Math.round(r.box.x)} y=${Math.round(r.box.y)} (khung vàng): khớp ${r.hits}/${r.n} lần quét, điểm ${r.z.toFixed(1)}, lệch giờ ${r.offset >= 0 ? '+' : ''}${r.offset.toFixed(2)}s.` +
+        (strong ? '' : '\nĐộ tin cậy THẤP – kiểm tra lại vùng hoặc tự khoanh miệng bao.'), strong ? 'okc' : 'err');
+      return true;
+    } catch (e) { msg('mark-msg', e.name === 'AbortError' ? 'Đã hủy.' : 'Lỗi tìm bao: ' + e.message, 'err'); return false; }
+    finally { $('cancel').hidden = true; $('prog').hidden = true; setBusy(false); }
+  }
+  $('mark-fms').addEventListener('click', markFms);
+  async function markFms() {
+    const ready = needFmsReady(); if (!ready) return;
+    if (!st.roi && !(await findBag())) return;
+    const { p, raw, inVid, dur } = ready;
     const lo = Math.max(0, Math.min(...inVid.map((s) => s.v)) - 70), hi = Math.min(dur, Math.max(...inVid.map((s) => s.v)) + 70);
     if (!st.scan || st.scan.range.startS > lo + 1 || st.scan.range.endS < hi - 1) {
       $('from').value = fmt(lo); $('to').value = fmt(hi);
@@ -494,32 +524,43 @@
       await new Promise((r) => { const iv = setInterval(() => { if (!st.busy) { clearInterval(iv); r(); } }, 300); });
       if (!st.scan) return;
     }
-    // Ứng viên: đỉnh màu kiện trong miệng bao (đo trên video thật tốt hơn chuyển động khi người ngồi sát bao).
-    // Nếu quá ít đỉnh màu (bao không xanh/khoanh sai) thì dùng lượt chuyển động.
+    // Hai bộ ứng viên: đỉnh MÀU kiện (kiện sáng trên lòng bao xanh) và đỉnh CHUYỂN ĐỘNG (kiện tối, gói đen).
+    // Thử ghép cả hai, lấy bộ ghép được nhiều lần quét hơn (hòa thì độ trễ đều hơn).
     const vMin = Math.min(...inVid.map((x) => x.v)), vMax = Math.max(...inVid.map((x) => x.v));
-    const peaks = st.scan.parcel
-      ? A.motion.detectColorPeaks(st.scan.times, st.scan.parcel, { madWindow: [vMin - 5, vMax + 10] })
-      : (st.scan.colorPeaks || []);
-    const useColor = peaks.length >= 0.5 * inVid.length;
-    if (useColor && !st.scan.usingColor) {
-      st.scan.motionEvents = st.scan.events;
-      st.scan.events = peaks; st.scan.usingColor = true;
+    const colorEv = st.scan.parcel ? A.motion.detectColorPeaks(st.scan.times, st.scan.parcel, { madWindow: [vMin - 5, vMax + 10] }) : [];
+    const motionEv = A.rhythm.simplePeaks(st.scan.times, st.scan.act).map((t) => ({
+      id: 'mp_' + Math.round(t * 1000), startS: t - 0.16, endS: t + 0.16, peakS: t, maxAct: 0, durationS: 0, kind: 'drop', reason: 'Vật qua miệng bao (chuyển động)' }));
+    const manual = $('fms-offset').value.trim();
+    const prior = st.bagFind ? st.bagFind.offset : 0;
+    const tryAlign = (evs, label) => {
+      let offset, offsetNote, expLag = 0.8;
+      if (manual !== '' && isFinite(Number(manual))) { offset = Number(manual); offsetNote = 'nhập tay'; }
+      else {
+        const est = A.fms.estimateOffset(inVid, evs, { lo: prior - (st.bagFind ? 2 : 15), hi: prior + (st.bagFind ? 2 : 15), step: 0.25, window: 3 });
+        offset = est.offset; expLag = isFinite(est.medianLag) ? Math.max(0.3, est.medianLag) : 0.8;
+        offsetNote = `tự tính, khớp ${est.hits}/${est.total} lần quét`;
+      }
+      const m = A.fms.alignScans(inVid.map((s) => ({ ...s, v: s.v + offset })), evs, { expLag, maxDev: 2.5, skipCost: 3 });
+      const got = m.filter((x) => x.event);
+      const cost = got.reduce((a, x) => a + Math.abs(x.lagS - expLag), 0);
+      return { evs, label, offset, offsetNote, matches: m, got: got.length, cost };
+    };
+    const cands = [tryAlign(colorEv, 'màu kiện'), tryAlign(motionEv, 'chuyển động')].filter((c) => c.evs.length);
+    if (!cands.length) { msg('mark-msg', 'Không thấy lượt nào đi vào vùng khoanh quanh giờ quét. Kiểm tra lại vùng khoanh.', 'err'); return; }
+    cands.sort((a, b) => b.got - a.got || a.cost - b.cost);
+    // Màu kiện chính xác thời điểm hơn (đo trên TO thật: 28/28 khung đúng so với 21/28 của chuyển động)
+    // -> ưu tiên màu nếu ghép được >= 90% số lần quét mà chuyển động ghép được.
+    const colorC = cands.find((c) => c.label === 'màu kiện'), motionC = cands.find((c) => c.label === 'chuyển động');
+    const pick = colorC && motionC && colorC.got >= 0.9 * motionC.got ? colorC : cands[0];
+    const other = cands.find((c) => c !== pick);
+    if (st.scan.signalUsed !== pick.label) {
+      st.scan.motionEvents = st.scan.motionEvents || st.scan.events;
+      st.scan.events = pick.evs; st.scan.signalUsed = pick.label;
       st.decisions = {}; st.counts = {}; st.thumbs = st.thumbs || {};
     }
-    const n = numbered();
-    const counted = n.items.filter((i) => i.counted);
-    // Mọi lượt (kể cả "người che", "cần kiểm tra") đều là ứng viên, trừ lượt người dùng đã bỏ.
-    const candidates = n.items.filter((i) => i.decision !== 'reject');
-    const manual = $('fms-offset').value.trim();
-    let offset, offsetNote, expLag = 1;
-    if (manual !== '' && isFinite(Number(manual))) { offset = Number(manual); offsetNote = 'nhập tay'; }
-    else {
-      const est = A.fms.estimateOffset(inVid, counted, { lo: -60, hi: 60, step: 0.25, window: 6 });
-      offset = est.offset; expLag = isFinite(est.medianLag) ? est.medianLag : 1;
-      offsetNote = `tự tính, khớp ${est.hits}/${est.total} lần quét`;
-      $('fms-offset').placeholder = `tự tính: ${offset >= 0 ? '+' : ''}${offset.toFixed(2)}`;
-    }
-    const matches = A.fms.alignScans(inVid.map((s) => ({ ...s, v: s.v + offset })), candidates, { expLag, maxDev: 4, skipCost: 4 });
+    const useColor = pick.label === 'màu kiện';
+    const { offset, offsetNote, matches } = pick;
+    $('fms-offset').placeholder = `tự tính: ${offset >= 0 ? '+' : ''}${offset.toFixed(2)}`;
     // Độ trễ quét -> bỏ vào lệch hẳn so với thường lệ => ghép không chắc, cần người xem
     const lagsOk = matches.filter((m) => m.event).map((m) => m.lagS).sort((x, y) => x - y);
     const medLag = lagsOk.length ? lagsOk[lagsOk.length >> 1] : 0;
@@ -545,11 +586,11 @@
     ]);
     st.fmsResult = { pos: p, event: ev && !mine.doubt ? ev : null, doubtEvent: ev && mine.doubt ? ev : null, videoS, lag: ev ? mine.lagS : null, offset, offsetNote };
     if (!st.target) st.target = { id: 'scan_' + p.order };
-    $('res-img').src = st.ev.marked; $('result').hidden = false;
+    $('res-img').src = st.ev.marked; $('res-crop').src = st.ev.crop; $('result').hidden = false;
     const matched = matches.filter((m) => m.event).length;
     const doubts = matches.filter((m) => m.doubt).length;
     msg('mark-msg', `Ghép được ${matched}/${matches.length} lần quét của bao với lượt bỏ kiện trong video` +
-      (useColor ? ' (theo màu kiện)' : ' (theo chuyển động)') + (doubts ? `; ${doubts} lượt độ trễ bất thường cần kiểm tra.` : '.'), matched ? 'okc' : 'err');
+      ` (theo ${pick.label}${other ? `; cách kia ghép ${other.got}` : ''})` + (doubts ? `; ${doubts} lượt độ trễ bất thường cần kiểm tra.` : '.'), matched ? 'okc' : 'err');
     st.lastMatches = matches;
   }
 
@@ -623,7 +664,7 @@
     fetch(q.get('src')).then((r) => r.blob()).then((b) => openFile(b, q.get('src').split('/').pop()));
     if (q.get('fms')) fetch(q.get('fms')).then((r) => r.text()).then((t) => { $('fms-text').value = t; setFms(A.fms.parseTable(t), q.get('fms').split('/').pop()); });
   }
-  window.__dem = { st, setRoi, setFms, markFms }; // để kiểm thử tự động
+  window.__dem = { st, setRoi, setFms, markFms, findBag }; // để kiểm thử tự động
 })();
 </script>
 </body>

@@ -33,3 +33,14 @@ test('OSD template OCR on real frames', { skip: !have && 'thiếu data/fixtures/
   assert.deepEqual(wrongAccepted, [], 'không được chấp nhận kết quả đọc sai');
   assert.ok(accepted / fx.eval.length >= 0.95, 'tỷ lệ tự chấp nhận thấp');
 });
+
+const FIX2 = new URL('../../data/fixtures/osd_v2507.json', import.meta.url);
+test('fitGrid on dark-digit OSD over bright posters (video 2)', { skip: !existsSync(FIX2) && 'thiếu data/fixtures/osd_v2507.json' }, () => {
+  const fx = JSON.parse(readFileSync(FIX2, 'utf8'));
+  const [, , w, h] = fx.roi;
+  const f = fx.frames[0];
+  const grid = fitGrid({ w, h, data: new Uint8Array(Buffer.from(f.b64, 'base64')) }, f.label);
+  console.log(`v2507 grid x0=${grid.x0.toFixed(2)} pitch=${grid.pitch} y=${grid.y0}-${grid.y1}`);
+  assert.ok(grid.pitch >= 15.5 && grid.pitch <= 16.5, 'pitch ' + grid.pitch);
+  assert.ok(Math.abs(grid.x0 - (-2)) <= 3, 'x0 ' + grid.x0);
+});

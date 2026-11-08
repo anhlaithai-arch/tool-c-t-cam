@@ -94,10 +94,26 @@ export async function evidence(video, roi, tS, labelLines = []) {
   m.fillStyle = '#ffd400';
   labelLines.forEach((l, i) => m.fillText(l, bx + pad, by + pad + (i + 1) * lh - 4));
 
+  // Ảnh cắt = dải 3 khung (-0,5s / đúng lúc / +0,5s) quanh miệng bao: khung đúng lúc có thể lệch ~1s
+  // so với lúc kiện qua miệng bao, dải 3 khung giúp người xem luôn thấy kiện đi vào.
   const box = contextBox(roi, W, H);
   const crop = document.createElement('canvas');
-  crop.width = box.w; crop.height = box.h;
-  crop.getContext('2d').drawImage(full, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
+  crop.width = box.w * 3 + 8; crop.height = box.h + 18;
+  const cx = crop.getContext('2d');
+  cx.fillStyle = '#000'; cx.fillRect(0, 0, crop.width, crop.height);
+  cx.font = 'bold 13px sans-serif';
+  const offs = [-0.5, 0, 0.5];
+  for (let i = 0; i < 3; i++) {
+    const t = Math.max(0, Math.min(video.duration - 0.05, tS + offs[i]));
+    await seek(video, t);
+    const x = i * (box.w + 4);
+    cx.drawImage(video, box.x, box.y, box.w, box.h, x, 18, box.w, box.h);
+    cx.strokeStyle = '#ffd400'; cx.lineWidth = 2;
+    cx.strokeRect(x + roi.x - box.x, 18 + roi.y - box.y, roi.w, roi.h);
+    cx.fillStyle = i === 1 ? '#ffd400' : '#ccc';
+    cx.fillText((offs[i] > 0 ? '+' : '') + offs[i].toFixed(1) + 's', x + 4, 14);
+  }
+  await seek(video, tS); // trả video về đúng khung
 
   return { full: toJpeg(full), marked: toJpeg(marked), crop: toJpeg(crop, 0.9) };
 }

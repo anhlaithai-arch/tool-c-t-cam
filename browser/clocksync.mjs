@@ -56,25 +56,33 @@ export async function learnClock(video, label, atS, roi = defaultClockRoi(video.
   const tick = await findTick(video, roi, grid, secIdx, atS);
   if (!tick) throw new Error('Không thấy chữ số giây đổi. Kiểm tra lại chữ đã nhập hoặc chọn khung khác.');
   const samples = [{ img: f0.img, text: layout.label }];
-  for (let j = 0; j < 12; j++) {
+  // học 25 giây: mỗi chữ số giây xuất hiện 2-3 lần -> mẫu trung bình bền hơn (0 và 8 dễ lẫn khi chỉ có 1 mẫu)
+  for (let j = 0; j < 25; j++) {
     const t = tick.tTick + j + 0.5;
     if (t >= video.duration) break;
     const f = await frameAt(video, roi, t);
     samples.push({ img: f.img, text: formatLike(layout, layout.wall + 1 + j) });
   }
-  const templates = buildTemplates(grid, samples);
-  if (templates.missing.length) throw new Error('Chưa học đủ chữ số ' + templates.missing.join(',') + '. Chọn khung khác (cần ≥12 giây video sau đó).');
-  // tự kiểm tra: đọc lại các mẫu vừa học
+  const fromIndex = layout.groups.h.start;
+  const templates = buildTemplates(grid, samples, { fromIndex });
+  if (templates.missing.length) throw new Error('Chưa học đủ chữ số ' + templates.missing.join(',') + '. Chọn khung khác (cần ≥25 giây video sau đó).');
+  // tự kiểm tra: đọc lại các mẫu vừa học (chỉ phần giờ; phần ngày giữ theo nhãn)
+  const bad = [];
   for (const s of samples) {
-    const r = readOsd(s.img, grid, templates);
-    if (r.text !== s.text) throw new Error(`Đồng hồ không chạy liên tục sau khung đã chọn (đọc "${r.text}", mong "${s.text}"). Chọn khung khác.`);
+    const r = readOsd(s.img, grid, templates, { fromIndex });
+    if (r.text !== s.text) bad.push({ got: r.text, want: s.text });
   }
-  return { roi, grid, templates, layout };
+  // cho phép lệch tối đa 10% (bước đồng bộ tự loại lần đọc lệch); nhiều hơn = nhãn sai hoặc đồng hồ nhảy
+  if (bad.length > Math.floor(samples.length * 0.1)) {
+    throw new Error(`Đồng hồ không khớp nhãn ở ${bad.length}/${samples.length} mẫu (vd đọc "${bad[0].got}", mong "${bad[0].want}"). Kiểm tra chữ đã nhập hoặc chọn khung khác.`);
+  }
+  return { roi, grid, templates, layout, fromIndex };
 }
 
 /** Đọc đồng hồ dọc video, trả SyncResult. */
 export async function syncClock(video, clock, { stepS = 15, onProgress, signal } = {}) {
   const { roi, grid, templates, layout } = clock;
+  const fromIndex = clock.fromIndex ?? layout.groups.h.start;
   const dur = video.duration;
   const ts = [];
   for (let t = 0.2; t < dur - 0.3; t += stepS) ts.push(t);
@@ -83,7 +91,7 @@ export async function syncClock(video, clock, { stepS = 15, onProgress, signal }
   for (let i = 0; i < ts.length; i++) {
     if (signal?.aborted) throw new DOMException('Đã hủy', 'AbortError');
     const f = await frameAt(video, roi, ts[i]);
-    const r = readOsd(f.img, grid, templates);
+    const r = readOsd(f.img, grid, templates, { fromIndex });
     const wall = r.ok ? parseClock(r.text, layout.order).wall : null;
     samples.push({ videoS: f.t, wall, text: r.text });
     onProgress?.(i + 1, ts.length);
@@ -94,7 +102,7 @@ export async function syncClock(video, clock, { stepS = 15, onProgress, signal }
       const mid = group[group.length >> 1];
       const tk = await findTick(video, roi, grid, secIdx, mid.videoS);
       if (!tk) return null;
-      const r = readOsd(tk.img, grid, templates);
+      const r = readOsd(tk.img, grid, templates, { fromIndex });
       const wall = r.ok ? parseClock(r.text, layout.order).wall : null;
       if (wall === null) return null;
       const lo = wall - tk.tTick, hi = wall - tk.tPrev;

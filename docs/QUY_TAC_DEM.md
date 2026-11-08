@@ -60,3 +60,21 @@ Chưa xử lý: lấy kiện ra (−1) trong chế độ FMS – phụ thuộc F
 - Lưu ý: "11-07-2026 Sat" đọc được cả 7/11 lẫn 11/7 (cả hai đều thứ Bảy) → tool hiểu tháng-ngày, khớp ngày FMS.
   Nên dùng ngày trong file FMS để chốt cách đọc ngày (chưa làm).
 - Giới hạn: một bao, một camera, bao xanh. Bao màu khác / kiện màu tối (túi đen) có thể không tạo đỉnh màu → khi đó app quay về đếm theo chuyển động.
+
+## AI tự xác định bao cần đếm (2026-11-09)
+
+Không cần khoanh vùng: từ giờ quét FMS của phiếu TO, AI chia khung hình thành lưới ô 48×48 px, đo chuyển động từng ô quanh
+khoảng quét, và chọn vùng có đỉnh chuyển động **trùng nhịp các lần quét** nhất (`browser/bagfinder.mjs`, `core/rhythm.mjs`).
+Sau đó tự chọn tín hiệu: **màu kiện** (kiện sáng, chính xác thời điểm hơn) nếu ghép được ≥ 90% so với **chuyển động**
+(dùng cho kiện gói đen).
+
+| Phiếu TO | Người bắn | Kiện | AI tự tìm bao | Ghép | Khung bằng chứng đúng lúc (≤0,5s) |
+|---|---|---|---|---|---|
+| TO20261107JIZEQ (28 đơn) | áo đỏ đậm, bao xanh bên phải | sáng (trắng/nâu/đỏ) | đúng (z 5,1) | 27/28 + 1 "cần kiểm tra" | 26/28 (1 lệch 0,9s) |
+| TO20261106IH08H (49 đơn) | áo đen ngồi phía trên bên phải (KHÔNG phải áo đỏ đậm) | gói đen | đúng (z 6,3) | 48/49 + 1 "cần kiểm tra" | ~37/49 trùng bản đã kiểm bằng mắt; phần còn lại lệch ~1s |
+
+- Ở TO thứ hai, người áo đỏ đậm đang buộc bao trong lúc quét; người quét thật là người áo đen – AI tự tìm ra, người không cần biết trước.
+- Ảnh cắt bằng chứng giờ là **dải 3 khung (−0,5 / 0 / +0,5 s)** nên lệch ~1s vẫn thấy kiện đi vào.
+- Đồng hồ camera chiều tối: chữ số chuyển sang **màu đen**, đè lên giấy dán tường → dò lưới ký tự viết lại (nét sáng hoặc tối,
+  tìm đồng thời dòng chữ/cỡ chữ, bước ký tự đo bằng tự tương quan); chỉ đọc bắt buộc phần giờ:phút:giây, ngày lấy theo nhãn;
+  học mẫu 25 giây chỉ từ phần giờ. Kết quả: đồng bộ ±0,02 s ở cả hai video.

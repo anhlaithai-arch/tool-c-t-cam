@@ -22,11 +22,13 @@ var CountingApp = (() => {
   // browser/entry.mjs
   var entry_exports = {};
   __export(entry_exports, {
+    bagfinder: () => bagfinder_exports,
     clock: () => clock_exports,
     clocksync: () => clocksync_exports,
     counter: () => counter_exports,
     fms: () => fms_exports,
     motion: () => motion_exports,
+    rhythm: () => rhythm_exports,
     sync: () => sync_exports,
     version: () => version,
     video: () => video_exports,
@@ -495,9 +497,25 @@ var CountingApp = (() => {
     labelLines.forEach((l, i) => m.fillText(l, bx + pad, by + pad + (i + 1) * lh - 4));
     const box = contextBox(roi, W, H);
     const crop = document.createElement("canvas");
-    crop.width = box.w;
-    crop.height = box.h;
-    crop.getContext("2d").drawImage(full, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
+    crop.width = box.w * 3 + 8;
+    crop.height = box.h + 18;
+    const cx = crop.getContext("2d");
+    cx.fillStyle = "#000";
+    cx.fillRect(0, 0, crop.width, crop.height);
+    cx.font = "bold 13px sans-serif";
+    const offs = [-0.5, 0, 0.5];
+    for (let i = 0; i < 3; i++) {
+      const t = Math.max(0, Math.min(video.duration - 0.05, tS + offs[i]));
+      await seek(video, t);
+      const x = i * (box.w + 4);
+      cx.drawImage(video, box.x, box.y, box.w, box.h, x, 18, box.w, box.h);
+      cx.strokeStyle = "#ffd400";
+      cx.lineWidth = 2;
+      cx.strokeRect(x + roi.x - box.x, 18 + roi.y - box.y, roi.w, roi.h);
+      cx.fillStyle = i === 1 ? "#ffd400" : "#ccc";
+      cx.fillText((offs[i] > 0 ? "+" : "") + offs[i].toFixed(1) + "s", x + 4, 14);
+    }
+    await seek(video, tS);
     return { full: toJpeg(full), marked: toJpeg(marked), crop: toJpeg(crop, 0.9) };
   }
 
@@ -647,47 +665,31 @@ var CountingApp = (() => {
   var isAlnum = (c) => /[0-9A-Za-z]/.test(c);
   function fitGrid(img, label) {
     const L = label.length;
-    const thr = Math.max(170, percentile(img.data, 0.99) - 45);
     const { w, h, data } = img;
-    const rowSum = new Float32Array(h);
-    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (data[y * w + x] >= thr) rowSum[y]++;
-    const rmax = Math.max(...rowSum);
-    if (!rmax) return null;
-    let best = { len: 0, y0: 0, y1: 0 };
-    for (let y = 0, start = -1, gap = 0; y <= h; y++) {
-      const on = y < h && rowSum[y] > 0.1 * rmax;
-      if (on) {
-        if (start < 0) start = y;
-        gap = 0;
-      } else if (start >= 0 && ++gap > 1) {
-        const end = y - gap + 1;
-        if (end - start > best.len) best = { len: end - start, y0: start, y1: end };
-        start = -1;
-        gap = 0;
+    const hiT = Math.max(170, percentile(data, 0.99) - 45);
+    const loT = Math.min(80, percentile(data, 0.01) + 45);
+    const colCum = new Float32Array((h + 1) * w);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const v = data[y * w + x];
+        colCum[(y + 1) * w + x] = colCum[y * w + x] + (v >= hiT || v <= loT ? 1 : 0);
       }
     }
-    const { y0, y1 } = best;
-    const bandH = y1 - y0;
-    if (bandH < 5) return null;
-    const col = new Float32Array(w);
-    for (let y = y0; y < y1; y++) for (let x = 0; x < w; x++) if (data[y * w + x] >= thr) col[x] += 1 / bandH;
     const prefix = new Float32Array(w + 1);
-    for (let x = 0; x < w; x++) prefix[x + 1] = prefix[x] + col[x];
-    const mean = (a, b) => {
-      const lo = Math.max(0, Math.min(w, Math.round(a))), hi = Math.max(0, Math.min(w, Math.round(b)));
-      return hi > lo ? (prefix[hi] - prefix[lo]) / (hi - lo) : 0;
-    };
-    const starts = [];
-    for (let x = 0; x < w; x++) if (col[x] > 0 && (x === 0 || col[x - 1] === 0)) starts.push(x);
-    const pmax = w / (L - 1), pmin = Math.max(4, bandH * 0.25);
     let top = null;
+    const pmax = w / (L - 1), pmin = Math.max(5, w / (L * 1.8));
     for (let p = pmin; p <= pmax; p += 0.25) {
-      for (const rs of starts) {
-        for (let k = 0; k < L; k++) {
-          if (!isAlnum(label[k])) continue;
-          for (const lead of [0.05, 0.12, 0.2]) {
-            const x0 = rs - k * p - lead * p;
-            if (x0 < -p * 0.5 || x0 + L * p > w + p * 0.5) continue;
+      for (const hf of [1.15, 1.35, 1.6]) {
+        const bh = Math.round(p * hf);
+        if (bh < 5 || bh > h) continue;
+        for (let y02 = 0; y02 + bh <= h; y02++) {
+          const y12 = y02 + bh;
+          for (let x = 0; x < w; x++) prefix[x + 1] = prefix[x] + (colCum[y12 * w + x] - colCum[y02 * w + x]) / bh;
+          const mean = (a, b) => {
+            const lo = Math.max(0, Math.min(w, Math.round(a))), hi = Math.max(0, Math.min(w, Math.round(b)));
+            return hi > lo ? (prefix[hi] - prefix[lo]) / (hi - lo) : 0;
+          };
+          for (let x0 = -0.5 * p; x0 + L * p <= w + 0.5 * p; x0 += 0.5) {
             let s = 0;
             for (let j = 0; j < L; j++) {
               const a = x0 + j * p, c = label[j];
@@ -695,12 +697,73 @@ var CountingApp = (() => {
               else if (isAlnum(c)) s += Math.min(mean(a + 0.2 * p, a + 0.8 * p), 0.5);
               if (j > 0 && isAlnum(c) && isAlnum(label[j - 1])) s -= 2 * mean(a - 0.08 * p, a + 0.08 * p + 1);
             }
-            if (!top || s > top.score) top = { x0, pitch: p, score: s };
+            if (!top || s > top.score) top = { x0, pitch: p, score: s, y0: y02, y1: y12 };
           }
         }
       }
     }
-    return top ? { ...top, y0, y1, thr, label } : null;
+    if (!top) return null;
+    {
+      const { y0: y02, y1: y12 } = top, bh = y12 - y02;
+      for (let x = 0; x < w; x++) prefix[x + 1] = prefix[x] + (colCum[y12 * w + x] - colCum[y02 * w + x]) / bh;
+      const meanF = (a, b) => {
+        a = Math.max(0, Math.min(w, a));
+        b = Math.max(0, Math.min(w, b));
+        if (b <= a) return 0;
+        const P = (t) => {
+          const i = Math.floor(t), f = t - i;
+          return i >= w ? prefix[w] : prefix[i] + f * (prefix[i + 1] - prefix[i]);
+        };
+        return (P(b) - P(a)) / (b - a);
+      };
+      const p0 = top.pitch, x00 = top.x0;
+      const xa0 = Math.max(0, Math.floor(x00)), xb0 = Math.min(w, Math.ceil(x00 + L * p0));
+      const prof = [];
+      for (let x = xa0; x < xb0; x++) prof.push(prefix[x + 1] - prefix[x]);
+      const mu = prof.reduce((a, b) => a + b, 0) / Math.max(1, prof.length);
+      const c = prof.map((v) => v - mu);
+      const at = (t) => {
+        const i = Math.floor(t), f = t - i;
+        return i + 1 < c.length ? c[i] * (1 - f) + c[i + 1] * f : 0;
+      };
+      let pBest = p0, rBest = -Infinity;
+      for (let lag = p0 - 1.5; lag <= p0 + 1.5; lag += 0.02) {
+        let r = 0, n = 0;
+        for (let x = 0; x + lag + 1 < c.length; x++) {
+          r += c[x] * at(x + lag);
+          n++;
+        }
+        r /= Math.max(1, n);
+        if (r > rBest) {
+          rBest = r;
+          pBest = lag;
+        }
+      }
+      let best = { score: -Infinity };
+      for (let p = pBest; p <= pBest + 1e-9; p += 1) {
+        for (let x0 = x00 - p0 / 2; x0 <= x00 + p0 / 2; x0 += 0.1) {
+          let s = 0;
+          for (let j = 0; j < L; j++) {
+            const a = x0 + j * p, c2 = label[j];
+            if (c2 === " ") s -= 2 * meanF(a, a + p);
+            else if (isAlnum(c2)) s += Math.min(meanF(a + 0.2 * p, a + 0.8 * p), 0.5);
+            if (j > 0 && isAlnum(c2) && isAlnum(label[j - 1])) s -= 2 * meanF(a - 0.08 * p, a + 0.08 * p + 1);
+          }
+          if (s > best.score) best = { score: s, pitch: p, x0 };
+        }
+      }
+      top = { ...top, ...best };
+    }
+    const xa = Math.max(0, Math.round(top.x0)), xb = Math.min(w, Math.round(top.x0 + L * top.pitch));
+    const rowInk = (y) => {
+      let n = 0;
+      for (let x = xa; x < xb; x++) n += colCum[(y + 1) * w + x] - colCum[y * w + x];
+      return n / Math.max(1, xb - xa);
+    };
+    let { y0, y1 } = top;
+    while (y0 > 0 && rowInk(y0 - 1) > 0.08) y0--;
+    while (y1 < h && rowInk(y1) > 0.08) y1++;
+    return { ...top, y0, y1, thr: hiT, label };
   }
   function cellVector(img, grid, k, polarity = "white") {
     const { x0, pitch, y0, y1 } = grid;
@@ -759,10 +822,10 @@ var CountingApp = (() => {
     for (let i = 0; i < a.length; i++) s += a[i] * b[i];
     return s / a.length;
   }
-  function buildTemplates(grid, samples) {
+  function buildTemplates(grid, samples, { fromIndex = 0 } = {}) {
     const acc = {};
     for (const { img, text } of samples) {
-      for (let k = 0; k < text.length; k++) {
+      for (let k = fromIndex; k < text.length; k++) {
         const c = text[k];
         if (!isDigit(c) || !isDigit(grid.label[k])) continue;
         const v = cellVectorAuto(img, grid, k);
@@ -777,11 +840,11 @@ var CountingApp = (() => {
     }
     return { digits, missing: "0123456789".split("").filter((d) => !digits[d]) };
   }
-  function readOsd(img, grid, templates, { minScore = 0.55, minMargin = 0.08 } = {}) {
+  function readOsd(img, grid, templates, { minScore = 0.55, minMargin = 0.08, fromIndex = 0 } = {}) {
     const label = grid.label;
     const out = label.split("");
     let minS = Infinity, minM = Infinity;
-    for (let k = 0; k < label.length; k++) {
+    for (let k = fromIndex; k < label.length; k++) {
       if (!isDigit(label[k])) continue;
       let b1 = -Infinity, b2 = -Infinity, d1 = "?";
       for (const pol of ["white", "black"]) {
@@ -972,22 +1035,28 @@ var CountingApp = (() => {
     const tick = await findTick(video, roi, grid, secIdx, atS);
     if (!tick) throw new Error("Không thấy chữ số giây đổi. Kiểm tra lại chữ đã nhập hoặc chọn khung khác.");
     const samples = [{ img: f0.img, text: layout.label }];
-    for (let j = 0; j < 12; j++) {
+    for (let j = 0; j < 25; j++) {
       const t = tick.tTick + j + 0.5;
       if (t >= video.duration) break;
       const f = await frameAt(video, roi, t);
       samples.push({ img: f.img, text: formatLike(layout, layout.wall + 1 + j) });
     }
-    const templates = buildTemplates(grid, samples);
-    if (templates.missing.length) throw new Error("Chưa học đủ chữ số " + templates.missing.join(",") + ". Chọn khung khác (cần ≥12 giây video sau đó).");
+    const fromIndex = layout.groups.h.start;
+    const templates = buildTemplates(grid, samples, { fromIndex });
+    if (templates.missing.length) throw new Error("Chưa học đủ chữ số " + templates.missing.join(",") + ". Chọn khung khác (cần ≥25 giây video sau đó).");
+    const bad = [];
     for (const s of samples) {
-      const r = readOsd(s.img, grid, templates);
-      if (r.text !== s.text) throw new Error(`Đồng hồ không chạy liên tục sau khung đã chọn (đọc "${r.text}", mong "${s.text}"). Chọn khung khác.`);
+      const r = readOsd(s.img, grid, templates, { fromIndex });
+      if (r.text !== s.text) bad.push({ got: r.text, want: s.text });
     }
-    return { roi, grid, templates, layout };
+    if (bad.length > Math.floor(samples.length * 0.1)) {
+      throw new Error(`Đồng hồ không khớp nhãn ở ${bad.length}/${samples.length} mẫu (vd đọc "${bad[0].got}", mong "${bad[0].want}"). Kiểm tra chữ đã nhập hoặc chọn khung khác.`);
+    }
+    return { roi, grid, templates, layout, fromIndex };
   }
   async function syncClock(video, clock, { stepS = 15, onProgress, signal } = {}) {
     const { roi, grid, templates, layout } = clock;
+    const fromIndex = clock.fromIndex ?? layout.groups.h.start;
     const dur = video.duration;
     const ts = [];
     for (let t = 0.2; t < dur - 0.3; t += stepS) ts.push(t);
@@ -996,7 +1065,7 @@ var CountingApp = (() => {
     for (let i = 0; i < ts.length; i++) {
       if (signal?.aborted) throw new DOMException("Đã hủy", "AbortError");
       const f = await frameAt(video, roi, ts[i]);
-      const r = readOsd(f.img, grid, templates);
+      const r = readOsd(f.img, grid, templates, { fromIndex });
       const wall = r.ok ? parseClock(r.text, layout.order).wall : null;
       samples.push({ videoS: f.t, wall, text: r.text });
       onProgress?.(i + 1, ts.length);
@@ -1007,7 +1076,7 @@ var CountingApp = (() => {
         const mid = group[group.length >> 1];
         const tk = await findTick(video, roi, grid, secIdx, mid.videoS);
         if (!tk) return null;
-        const r = readOsd(tk.img, grid, templates);
+        const r = readOsd(tk.img, grid, templates, { fromIndex });
         const wall = r.ok ? parseClock(r.text, layout.order).wall : null;
         if (wall === null) return null;
         const lo = wall - tk.tTick, hi = wall - tk.tPrev;
@@ -1373,6 +1442,159 @@ var CountingApp = (() => {
     const ds = new DecompressionStream("deflate-raw");
     const stream = new Blob([data]).stream().pipeThrough(ds);
     return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+
+  // browser/core/rhythm.mjs
+  var rhythm_exports = {};
+  __export(rhythm_exports, {
+    dedupe: () => dedupe,
+    regionFromZ: () => regionFromZ,
+    rhythmScore: () => rhythmScore,
+    simplePeaks: () => simplePeaks
+  });
+  function dedupe(peaks, sepS = 0.7) {
+    const out = [];
+    for (const p of peaks) if (!out.length || p - out[out.length - 1] >= sepS) out.push(p);
+    return out;
+  }
+  function rhythmScore(scanV, peaks, spanS, { lag = 1.5, maxOff = 3, step = 0.25 } = {}) {
+    const n = scanV.length;
+    if (peaks.length < 3 || !n || spanS <= 0) return { z: -9, offset: 0, hits: 0, n, expected: 0 };
+    const p = 1 - Math.exp(-(peaks.length / spanS) * lag);
+    const sd = Math.sqrt(Math.max(1e-9, n * p * (1 - p)));
+    let best = null;
+    for (let off2 = -maxOff; off2 <= maxOff + 1e-9; off2 += step) {
+      let hits = 0, j = 0;
+      for (const v of scanV) {
+        const lo = v + off2;
+        while (j < peaks.length && peaks[j] < lo) j++;
+        if (j < peaks.length && peaks[j] <= lo + lag) hits++;
+      }
+      const z = (hits - n * p) / sd;
+      if (!best || z > best.z || z === best.z && Math.abs(off2) < Math.abs(best.offset)) best = { z, offset: off2, hits, n, expected: n * p };
+    }
+    return best;
+  }
+  function simplePeaks(times, sig, { k = 3, minThr = 0.03, win = 31, sepS = 0.7 } = {}) {
+    const n = sig.length;
+    if (n < 3) return [];
+    const med = (a) => {
+      const s = Array.from(a).sort((x, y) => x - y);
+      return s[s.length >> 1];
+    };
+    const ex = new Float64Array(n);
+    for (let i = 0; i < n; i++) ex[i] = sig[i] - med(sig.slice(Math.max(0, i - win), i + win + 1));
+    const m = med(ex);
+    const mad = med(Array.from(ex, (v) => Math.abs(v - m))) + 1e-6;
+    const thr = Math.max(minThr, k * mad);
+    const out = [];
+    let lastI = -1;
+    for (let i = 1; i < n - 1; i++) {
+      if (ex[i] > thr && ex[i] >= ex[i - 1] && ex[i] >= ex[i + 1]) {
+        if (lastI >= 0 && times[i] - times[lastI] < sepS) {
+          if (ex[i] > ex[lastI]) {
+            out[out.length - 1] = times[i];
+            lastI = i;
+          }
+        } else {
+          out.push(times[i]);
+          lastI = i;
+        }
+      }
+    }
+    return out;
+  }
+  function regionFromZ(zmap, nx, ny, step, cell, frac = 0.85) {
+    let bi = 0;
+    for (let i = 1; i < zmap.length; i++) if (zmap[i] > zmap[bi]) bi = i;
+    const zmax = zmap[bi];
+    const seen = new Uint8Array(zmap.length), q = [bi];
+    seen[bi] = 1;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    while (q.length) {
+      const i = q.pop(), y = Math.floor(i / nx), x = i % nx;
+      x0 = Math.min(x0, x * step);
+      y0 = Math.min(y0, y * step);
+      x1 = Math.max(x1, x * step + cell);
+      y1 = Math.max(y1, y * step + cell);
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const xx = x + dx, yy = y + dy;
+        if (xx < 0 || yy < 0 || xx >= nx || yy >= ny) continue;
+        const j = yy * nx + xx;
+        if (!seen[j] && zmap[j] >= frac * zmax) {
+          seen[j] = 1;
+          q.push(j);
+        }
+      }
+    }
+    return { best: bi, zmax, box: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } };
+  }
+
+  // browser/bagfinder.mjs
+  var bagfinder_exports = {};
+  __export(bagfinder_exports, {
+    findBagForScans: () => findBagForScans
+  });
+  var DOWN = 4;
+  var CELL = 12;
+  var STEP = 6;
+  async function findBagForScans(video, scanV, { fps = 12.5, padS = 15, lag = 1.5, maxOff = 3, onProgress, signal } = {}) {
+    const W = Math.floor(video.videoWidth / DOWN), H = Math.floor(video.videoHeight / DOWN);
+    const nx = Math.floor((W - CELL) / STEP) + 1, ny = Math.floor((H - CELL) / STEP) + 1;
+    const cv = document.createElement("canvas");
+    cv.width = W;
+    cv.height = H;
+    const ctx = cv.getContext("2d", { willReadFrequently: true });
+    const t0 = Math.max(0, Math.min(...scanV) - padS), t1 = Math.min(video.duration - 0.05, Math.max(...scanV) + padS);
+    const times = [], series = Array.from({ length: nx * ny }, () => []);
+    let prev = null;
+    const integ = new Float32Array((W + 1) * (H + 1));
+    for (let t = t0; t <= t1; t += 1 / fps) {
+      if (signal?.aborted) throw new DOMException("Đã hủy", "AbortError");
+      await seek(video, t, 5e3, { waitFrame: false });
+      ctx.drawImage(video, 0, 0, W, H);
+      const d = ctx.getImageData(0, 0, W, H).data;
+      const g = new Uint8Array(W * H);
+      for (let i = 0, j = 0; j < g.length; i += 4, j++) g[j] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      if (prev) {
+        for (let y = 0; y < H; y++) {
+          let row = 0;
+          for (let x = 0; x < W; x++) {
+            row += Math.abs(g[y * W + x] - prev[y * W + x]) > 18 ? 1 : 0;
+            integ[(y + 1) * (W + 1) + x + 1] = integ[y * (W + 1) + x + 1] + row;
+          }
+        }
+        const I = (x, y) => integ[y * (W + 1) + x];
+        let k = 0;
+        for (let cy = 0; cy < ny; cy++) {
+          for (let cx = 0; cx < nx; cx++, k++) {
+            const xa = cx * STEP, ya = cy * STEP, xb = xa + CELL, yb = ya + CELL;
+            series[k].push((I(xb, yb) - I(xa, yb) - I(xb, ya) + I(xa, ya)) / (CELL * CELL));
+          }
+        }
+        times.push(t);
+      }
+      prev = g;
+      if (onProgress && times.length % 10 === 0) onProgress(t - t0, t1 - t0);
+    }
+    const span = times[times.length - 1] - times[0];
+    const zmap = new Float64Array(nx * ny).fill(-9), offs = new Float64Array(nx * ny), hits = new Int32Array(nx * ny);
+    for (let k = 0; k < series.length; k++) {
+      const pk = simplePeaks(times, series[k]);
+      const r = rhythmScore(scanV, pk, span, { lag, maxOff });
+      zmap[k] = r.z;
+      offs[k] = r.offset;
+      hits[k] = r.hits;
+    }
+    const reg = regionFromZ(zmap, nx, ny, STEP, CELL);
+    const pad = 6;
+    const box = {
+      x: Math.max(0, (reg.box.x - pad) * DOWN),
+      y: Math.max(0, (reg.box.y - pad) * DOWN),
+      w: Math.min(video.videoWidth, (reg.box.w + 2 * pad) * DOWN),
+      h: Math.min(video.videoHeight, (reg.box.h + 2 * pad) * DOWN)
+    };
+    return { box, z: reg.zmax, offset: offs[reg.best], hits: hits[reg.best], n: scanV.length, heat: { zmap, nx, ny, step: STEP * DOWN, cell: CELL * DOWN } };
   }
 
   // browser/entry.mjs

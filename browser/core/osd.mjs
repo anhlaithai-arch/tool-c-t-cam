@@ -28,52 +28,39 @@ const isAlnum = (c) => /[0-9A-Za-z]/.test(c);
 /**
  * Dò lưới ký tự: trả {x0, pitch, y0, y1, thr, score} trong tọa độ của img (thường là vùng ROI đồng hồ).
  * label: chuỗi đúng như hiển thị trên khung hình này.
+ * Nét chữ = điểm rất sáng HOẶC rất tối (đầu ghi đổi chữ trắng/đen theo nền). Tìm đồng thời dòng chữ (y0, cao),
+ * bước ký tự và vị trí: ô ký tự có nét ở giữa, ô dấu cách và khe giữa hai ký tự phải trống
+ * (nền có giấy dán tường/đồ vật sẽ bị phạt ở các ô dấu cách).
  */
 export function fitGrid(img, label) {
   const L = label.length;
-  const thr = Math.max(170, percentile(img.data, 0.99) - 45);
   const { w, h, data } = img;
-
-  // dải hàng chứa chữ: hàng có nhiều điểm sáng nhất, mở rộng liên tục
-  const rowSum = new Float32Array(h);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (data[y * w + x] >= thr) rowSum[y]++;
-  const rmax = Math.max(...rowSum);
-  if (!rmax) return null;
-  let best = { len: 0, y0: 0, y1: 0 };
-  for (let y = 0, start = -1, gap = 0; y <= h; y++) {
-    const on = y < h && rowSum[y] > 0.1 * rmax;
-    if (on) { if (start < 0) start = y; gap = 0; } else if (start >= 0 && ++gap > 1) {
-      const end = y - gap + 1;
-      if (end - start > best.len) best = { len: end - start, y0: start, y1: end };
-      start = -1; gap = 0;
+  const hiT = Math.max(170, percentile(data, 0.99) - 45);
+  const loT = Math.min(80, percentile(data, 0.01) + 45);
+  // tổng tích lũy theo cột của mặt nạ nét: colCum[y*w + x] = số điểm nét ở cột x từ hàng 0..y-1
+  const colCum = new Float32Array((h + 1) * w);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const v = data[y * w + x];
+      colCum[(y + 1) * w + x] = colCum[y * w + x] + (v >= hiT || v <= loT ? 1 : 0);
     }
   }
-  const { y0, y1 } = best;
-  const bandH = y1 - y0;
-  if (bandH < 5) return null;
-
-  const col = new Float32Array(w);
-  for (let y = y0; y < y1; y++) for (let x = 0; x < w; x++) if (data[y * w + x] >= thr) col[x] += 1 / bandH;
   const prefix = new Float32Array(w + 1);
-  for (let x = 0; x < w; x++) prefix[x + 1] = prefix[x] + col[x];
-  const mean = (a, b) => {
-    const lo = Math.max(0, Math.min(w, Math.round(a))), hi = Math.max(0, Math.min(w, Math.round(b)));
-    return hi > lo ? (prefix[hi] - prefix[lo]) / (hi - lo) : 0;
-  };
-
-  // điểm bắt đầu các cụm cột sáng -> ứng viên căn lề
-  const starts = [];
-  for (let x = 0; x < w; x++) if (col[x] > 0 && (x === 0 || col[x - 1] === 0)) starts.push(x);
-
-  const pmax = w / (L - 1), pmin = Math.max(4, bandH * 0.25);
   let top = null;
+  const pmax = w / (L - 1), pmin = Math.max(5, w / (L * 1.8));
   for (let p = pmin; p <= pmax; p += 0.25) {
-    for (const rs of starts) {
-      for (let k = 0; k < L; k++) {
-        if (!isAlnum(label[k])) continue;
-        for (const lead of [0.05, 0.12, 0.2]) {
-          const x0 = rs - k * p - lead * p;
-          if (x0 < -p * 0.5 || x0 + L * p > w + p * 0.5) continue;
+    for (const hf of [1.15, 1.35, 1.6]) {
+      const bh = Math.round(p * hf);
+      if (bh < 5 || bh > h) continue;
+      for (let y0 = 0; y0 + bh <= h; y0++) {
+        const y1 = y0 + bh;
+        for (let x = 0; x < w; x++) prefix[x + 1] = prefix[x] + (colCum[y1 * w + x] - colCum[y0 * w + x]) / bh;
+        const mean = (a, b) => {
+          const lo = Math.max(0, Math.min(w, Math.round(a))), hi = Math.max(0, Math.min(w, Math.round(b)));
+          return hi > lo ? (prefix[hi] - prefix[lo]) / (hi - lo) : 0;
+        };
+        // nét phải có cả phía trên & dưới dải: dải lệch thì hàng sát mép dải có nét -> phạt
+        for (let x0 = -0.5 * p; x0 + L * p <= w + 0.5 * p; x0 += 0.5) {
           let s = 0;
           for (let j = 0; j < L; j++) {
             const a = x0 + j * p, c = label[j];
@@ -81,12 +68,59 @@ export function fitGrid(img, label) {
             else if (isAlnum(c)) s += Math.min(mean(a + 0.2 * p, a + 0.8 * p), 0.5);
             if (j > 0 && isAlnum(c) && isAlnum(label[j - 1])) s -= 2 * mean(a - 0.08 * p, a + 0.08 * p + 1);
           }
-          if (!top || s > top.score) top = { x0, pitch: p, score: s };
+          if (!top || s > top.score) top = { x0, pitch: p, score: s, y0, y1 };
         }
       }
     }
   }
-  return top ? { ...top, y0, y1, thr, label } : null;
+  if (!top) return null;
+  // tinh chỉnh mịn bước ký tự / vị trí trên dải đã chọn (lệch nhỏ cộng dồn qua ~23 ký tự sẽ làm lệch ô các số cuối)
+  {
+    const { y0, y1 } = top, bh = y1 - y0;
+    for (let x = 0; x < w; x++) prefix[x + 1] = prefix[x] + (colCum[y1 * w + x] - colCum[y0 * w + x]) / bh;
+    const meanF = (a, b) => { // trung bình có nội suy phần lẻ
+      a = Math.max(0, Math.min(w, a)); b = Math.max(0, Math.min(w, b));
+      if (b <= a) return 0;
+      const P = (t) => { const i = Math.floor(t), f = t - i; return i >= w ? prefix[w] : prefix[i] + f * (prefix[i + 1] - prefix[i]); };
+      return (P(b) - P(a)) / (b - a);
+    };
+    const p0 = top.pitch, x00 = top.x0;
+    // Bước ký tự = chu kỳ lặp của hồ sơ nét theo cột (font đều nét) – đo bằng tự tương quan, có nội suy phần lẻ.
+    const xa0 = Math.max(0, Math.floor(x00)), xb0 = Math.min(w, Math.ceil(x00 + L * p0));
+    const prof = [];
+    for (let x = xa0; x < xb0; x++) prof.push(prefix[x + 1] - prefix[x]);
+    const mu = prof.reduce((a, b) => a + b, 0) / Math.max(1, prof.length);
+    const c = prof.map((v) => v - mu);
+    const at = (t) => { const i = Math.floor(t), f = t - i; return i + 1 < c.length ? c[i] * (1 - f) + c[i + 1] * f : 0; };
+    let pBest = p0, rBest = -Infinity;
+    for (let lag = p0 - 1.5; lag <= p0 + 1.5; lag += 0.02) {
+      let r = 0, n = 0;
+      for (let x = 0; x + lag + 1 < c.length; x++) { r += c[x] * at(x + lag); n++; }
+      r /= Math.max(1, n);
+      if (r > rBest) { rBest = r; pBest = lag; }
+    }
+    let best = { score: -Infinity };
+    for (let p = pBest; p <= pBest + 1e-9; p += 1) {
+      for (let x0 = x00 - p0 / 2; x0 <= x00 + p0 / 2; x0 += 0.1) {
+        let s = 0;
+        for (let j = 0; j < L; j++) {
+          const a = x0 + j * p, c = label[j];
+          if (c === ' ') s -= 2 * meanF(a, a + p);
+          else if (isAlnum(c)) s += Math.min(meanF(a + 0.2 * p, a + 0.8 * p), 0.5);
+          if (j > 0 && isAlnum(c) && isAlnum(label[j - 1])) s -= 2 * meanF(a - 0.08 * p, a + 0.08 * p + 1);
+        }
+        if (s > best.score) best = { score: s, pitch: p, x0 };
+      }
+    }
+    top = { ...top, ...best };
+  }
+  // tinh chỉnh dải: co/giãn mép trên/dưới tới khi hàng mép gần như không còn nét trong vùng chữ
+  const xa = Math.max(0, Math.round(top.x0)), xb = Math.min(w, Math.round(top.x0 + L * top.pitch));
+  const rowInk = (y) => { let n = 0; for (let x = xa; x < xb; x++) n += colCum[(y + 1) * w + x] - colCum[y * w + x]; return n / Math.max(1, xb - xa); };
+  let { y0, y1 } = top;
+  while (y0 > 0 && rowInk(y0 - 1) > 0.08) y0--;
+  while (y1 < h && rowInk(y1) > 0.08) y1++;
+  return { ...top, y0, y1, thr: hiT, label };
 }
 
 /**
@@ -153,10 +187,11 @@ export function ncc(a, b) {
 }
 
 /** Học mẫu chữ số từ các khung có chữ đã biết: samples = [{img, text}]. Trả {digits: {"0": Float32Array,...}}. */
-export function buildTemplates(grid, samples) {
+export function buildTemplates(grid, samples, { fromIndex = 0 } = {}) {
+  // fromIndex: chỉ học từ ô chữ số ở vị trí này trở đi (bỏ ô ngày đè nền rối)
   const acc = {};
   for (const { img, text } of samples) {
-    for (let k = 0; k < text.length; k++) {
+    for (let k = fromIndex; k < text.length; k++) {
       const c = text[k];
       if (!isDigit(c) || !isDigit(grid.label[k])) continue;
       const v = cellVectorAuto(img, grid, k);
@@ -176,11 +211,12 @@ export function buildTemplates(grid, samples) {
  * Đọc lại chuỗi OSD: chữ số đọc bằng mẫu, ký tự khác giữ như nhãn.
  * Trả {text, minScore, minMargin, ok}.
  */
-export function readOsd(img, grid, templates, { minScore = 0.55, minMargin = 0.08 } = {}) {
+export function readOsd(img, grid, templates, { minScore = 0.55, minMargin = 0.08, fromIndex = 0 } = {}) {
+  // fromIndex: chỉ đọc chữ số từ vị trí này (vd đầu phần giờ); phần trước giữ như nhãn (ngày đè nền rối dễ đọc sai)
   const label = grid.label;
   const out = label.split('');
   let minS = Infinity, minM = Infinity;
-  for (let k = 0; k < label.length; k++) {
+  for (let k = fromIndex; k < label.length; k++) {
     if (!isDigit(label[k])) continue;
     // thử cả chữ trắng lẫn chữ đen, lấy cực khớp mẫu tốt nhất
     let b1 = -Infinity, b2 = -Infinity, d1 = '?';
