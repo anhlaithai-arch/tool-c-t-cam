@@ -47,7 +47,10 @@ Khi có bất đồng, Claude Code quyết định; nếu ảnh hưởng lớn t
    Mô tả giao cho Codex phải có:
    - file/hàm nào cần sửa, sửa gì;
    - API/hàm server liên quan (tên endpoint Python, tên hàm `google.script.run`) để gọi cho khớp;
-   - nhắc: chỉ sửa file giao diện, không đọc `Images.html`, không `clasp push`, commit `[Codex] ...` khi xong.
+   - nhắc: chỉ sửa file giao diện, không đọc `Images.html`, không `clasp push`, **không commit**.
+   Sandbox `workspace-write` của Codex không ghi được vào `.git`, nên sau khi review Claude commit thay
+   với tác giả `Codex` (`git -c user.name="Codex" ...`, message `[Codex] ...`, dòng `Reviewed-by: Claude Code`).
+   Đưa mô tả dài qua stdin: `codex exec ... -o codex-last.txt - < task.md`.
 4. **Chờ Codex chạy xong** mới làm tiếp.
 5. **Claude review** bằng `git diff` / `git show` commit của Codex; nếu sai thì sửa (commit `[Claude] fix: ...`) hoặc giao lại Codex.
 6. **Claude báo người dùng**: đã đổi gì, commit nào, cần người dùng làm gì.
