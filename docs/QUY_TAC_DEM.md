@@ -92,7 +92,7 @@ Người dùng chỉ cần bắn mã đơn trên trang Đếm (mở bằng link 
 4. Đưa vào bảng FMS như file TO → thứ tự N/T, AI tự tìm bao, ghép video như cũ.
 
 Lưu ý:
-- Webapp chạy dưới tài khoản người deploy → **mọi người dùng webapp dùng chung cookie đó**; chỉ người có khóa nhóm mới gọi được.
+- Webapp chạy dưới tài khoản người deploy → **mọi người dùng webapp dùng chung cookie đó**; không có khóa nhóm, ai có link webapp đều gọi được nên giữ link trong nội bộ.
   Cookie hết hạn → FMS trả 401/403, tool báo "cập nhật G1/G2".
 - Tên trường của API danh sách TO chưa được xác nhận: tool tự dò (`shipment_id`, `scan_time`, `ctime`…) và hiện danh sách
   trường nhận được để chỉnh nếu cần.

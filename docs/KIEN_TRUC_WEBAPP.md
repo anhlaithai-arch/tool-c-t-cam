@@ -7,7 +7,7 @@
  app Python: đọc video, đếm kiện  --POST-->  doPost API (cần API_TOKEN)
    - hỏi giờ packing theo mã đơn             - Sheet "KetQua": 1 dòng / kết quả
    - gửi kết quả + ảnh bằng chứng            - Drive: thư mục ảnh bằng chứng
-                                             doGet -> Index.html (cần VIEW_KEY)
+                                             doGet -> Index.html (không cần khóa)
                                               - bắn mã / tìm mã đơn
                                               - xem số kiện, thứ tự, ảnh
 ```
@@ -19,16 +19,15 @@
 ## Truy cập và bảo mật
 
 - Deploy webapp: *Execute as: Me*, *Who has access: Anyone* (để app Python gọi được mà không cần đăng nhập Google).
-- Vì vậy mọi dữ liệu đều khóa bằng khóa trong Script Properties:
-  - `API_TOKEN`: app Python dùng để ghi/đọc qua `doPost`.
-  - `VIEW_KEY`: người xem nhập trên giao diện. Mọi hàm `google.script.run` đều kiểm tra khóa này.
+- `API_TOKEN` (Script Properties): app Python dùng để ghi/đọc qua `doPost`.
+- **Không có khóa nhóm** (bỏ 2026-11-09 theo yêu cầu người dùng): ai có link webapp đều xem, lưu kết quả và gọi FMS được (bằng cookie FMS của người deploy). Giữ link trong nội bộ; muốn chặn thì deploy *Who has access: Anyone within* tên miền công ty.
 - Nếu Google Workspace công ty chặn deploy "Anyone" thì phải đổi phương án xác thực (báo Claude).
 
 ## Script Properties
 
 | Khóa | Ý nghĩa |
 |---|---|
-| `API_TOKEN`, `VIEW_KEY` | Tạo tự động khi chạy `setup()` |
+| `API_TOKEN` | Tạo tự động khi chạy `setup()` |
 | `RESULT_SHEET_ID` | Spreadsheet lưu kết quả (tạo tự động) |
 | `EVIDENCE_FOLDER_ID` | Thư mục Drive chứa ảnh (tạo tự động) |
 | `PACKING_SHEET_ID`, `PACKING_SHEET_NAME`, `PACKING_CODE_COL`, `PACKING_TIME_COL` | Nguồn tra giờ packing. **Tạm** là một Google Sheet; thay bằng hệ thống thật khi có thông tin |
@@ -71,7 +70,8 @@ Trả: `{"ok": true, ...}` hoặc `{"ok": false, "error": "..."}`
 
 | Hàm | Trả về |
 |---|---|
-| `uiCheckKey(viewKey)` | `true/false` |
-| `uiSearch(viewKey, query)` | `{items: [bản ghi...]}`; `query` = mã đơn (khớp chính xác hoặc một phần), rỗng = 50 kết quả mới nhất |
-| `uiGetResult(viewKey, id)` | bản ghi + `images: [{kind, dataUrl}]` |
-| `uiPackingTime(viewKey, orderCode)` | `{orderCode, packingTime}` |
+| `uiSearch(query)` | `{items: [bản ghi...]}`; `query` = mã đơn (khớp chính xác hoặc một phần), rỗng = 50 kết quả mới nhất |
+| `uiGetResult(id)` | bản ghi + `images: [{kind, dataUrl}]` |
+| `uiPackingTime(orderCode)` | `{orderCode, packingTime}` |
+| `uiFmsStations(orderCode)` | `{order, stations: [{station, to, scanTime}], allStations}`: các station đơn đi qua có TO, theo thứ tự hành trình |
+| `uiFmsFetch(orderCode, station)` | TO của đơn tại `station` + mọi đơn trong TO kèm giờ quét |

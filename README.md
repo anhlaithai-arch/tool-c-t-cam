@@ -56,7 +56,7 @@ cd gas
 clasp push --force
 ```
 
-Lần đầu: mở project Apps Script, chạy `setup()` để tạo khóa nhóm (`VIEW_KEY`), rồi Deploy > Web app.
+Lần đầu: mở project Apps Script, chạy `setup()` (tạo sheet, thư mục Drive, `API_TOKEN` cho app Python), rồi Deploy > Web app.
 Trang tra cứu: link webapp. Trang đếm: link webapp + `?page=dem`.
 
 ## Dùng thử: đồng bộ thời gian

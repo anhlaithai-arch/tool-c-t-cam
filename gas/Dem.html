@@ -19,7 +19,7 @@
   .panel { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 14px; min-width: 0; }
   .panel h2 { font-size: 16px; margin: 0 0 10px; }
   label { display: block; font-weight: 600; font-size: 13px; margin: 8px 0 4px; }
-  input[type=text], input[type=password], input[type=number] { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid #8395a8; border-radius: 7px; font: inherit; }
+  input[type=text], input[type=password], input[type=number], select { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid #8395a8; border-radius: 7px; font: inherit; }
   button { min-height: 38px; border: 1px solid var(--line); border-radius: 7px; padding: 7px 12px; background: var(--paper); color: var(--ink); font: inherit; cursor: pointer; }
   button:hover { background: #eaf0f8; } button:disabled { opacity: .55; cursor: not-allowed; }
   .primary { background: var(--blue); border-color: var(--blue); color: #fff; } .primary:hover { background: #113d8c; }
@@ -111,10 +111,10 @@
     <div class="panel">
       <h2>Dữ liệu quét FMS</h2>
       <div class="row">
-        <div><label for="fms-station">Hub (đúng tên trên FMS)</label><input id="fms-station" type="text" placeholder="vd 22-BNH Thuan Thanh 2 Hub"></div>
-        <button id="fms-api" type="button" class="primary">Lấy từ FMS theo mã đơn</button>
+        <div><label for="fms-station">Station</label><select id="fms-station" disabled><option value="">— Bắn mã đơn để tải station —</option></select></div>
+        <button id="fms-api" type="button" class="primary" disabled>Lấy TO của station</button>
       </div>
-      <p class="muted">Bắn mã đơn ở mục 2 rồi bấm nút trên: tool tự tìm TO của đơn tại hub, lấy danh sách mọi đơn trong TO và giờ quét. Hoặc nạp thủ công:</p>
+      <p class="muted">Bắn mã đơn ở mục 2: tool tự tải các station đơn đã đi qua (kèm mã TO). Chọn station nào thì lấy TO của station đó, cùng mọi đơn trong TO và giờ quét. Hoặc nạp thủ công:</p>
       <p class="muted">Dán bảng xuất từ FMS (Excel: chọn vùng có hàng tiêu đề → Ctrl+C → dán vào đây), chọn file CSV,
         hoặc lấy từ sheet "FMS" trên webapp. Cần 3 cột: mã đơn, giờ quét, mã bao.</p>
       <textarea id="fms-text" rows="4" style="width:100%;font:13px monospace" placeholder="Mã vận đơn	Thời gian quét	Mã bao"></textarea>
@@ -149,7 +149,6 @@
         <img id="res-img" alt="Ảnh đánh dấu kiện">
         <img id="res-crop" alt="Dải 3 khung quanh lúc bỏ kiện" style="margin-top:6px">
         <div class="row" style="margin-top:8px">
-          <div><label for="key">Khóa nhóm</label><input id="key" type="password" autocomplete="current-password"></div>
           <button id="save" type="button" class="primary">Lưu lên webapp</button>
         </div>
         <p id="save-msg" class="msg"></p>
@@ -202,7 +201,6 @@
 (function () {
   const A = window.CountingApp;
   const $ = (id) => document.getElementById(id);
-  const KEY_STORE = 'dem-kien.view-key';
   const st = { h: null, file: null, roi: null, scan: null, decisions: {}, counts: {}, abort: null, sync: null, clock: null, target: null, busy: false };
 
   // ---------- tiện ích ----------
@@ -446,19 +444,49 @@
 
   // ---------- tự lấy dữ liệu FMS ----------
   const STATION_STORE = 'dem-kien.fms-station';
-  $('fms-station').value = load(STATION_STORE);
+  let stationsFor = '', stationsReq = 0;
   $('fms-api').addEventListener('click', () => fetchFms());
+  $('fms-station').addEventListener('change', () => { if ($('fms-station').value) fetchFms(); });
+  /** Bắn mã đơn -> tải các station có TO; chọn sẵn station dùng lần trước (nếu đơn có đi qua) và lấy luôn. */
+  async function loadStations() {
+    const order = $('order').value.trim().toUpperCase();
+    if (!order || !inGas()) return;
+    const sel = $('fms-station'), req = ++stationsReq;
+    stationsFor = '';
+    sel.replaceChildren(new Option('Đang tải station…', '')); sel.disabled = true; $('fms-api').disabled = true;
+    msg('fms-msg', `Đang tra ${order} trên FMS…`);
+    try {
+      const r = await rpc('uiFmsStations', order);
+      if (req !== stationsReq) return;
+      if (!r.stations.length) {
+        sel.replaceChildren(new Option('— Không có station nào có TO —', ''));
+        msg('fms-msg', `Đơn ${order} chưa có dòng [TO…] ở station nào.` + (r.allStations.length ? ' Các station: ' + r.allStations.join(', ') : ''), 'err');
+        return;
+      }
+      stationsFor = order;
+      sel.replaceChildren(new Option(`— Chọn station (${r.stations.length}) —`, ''),
+        ...r.stations.map((s) => new Option(`${s.station} · ${s.to}` + (s.scanTime ? ` · ${s.scanTime.slice(11)}` : ''), s.station)));
+      sel.disabled = false;
+      const last = load(STATION_STORE);
+      if (last && r.stations.some((s) => s.station === last)) { sel.value = last; await fetchFms(); }
+      else { msg('fms-msg', `Đơn ${order} qua ${r.stations.length} station có TO. Chọn station để lấy TO.`); sel.focus(); }
+    } catch (e) {
+      if (req !== stationsReq) return;
+      sel.replaceChildren(new Option('— Lỗi tải station —', ''));
+      msg('fms-msg', 'Không tải được station: ' + (e && e.message || e), 'err');
+    }
+  }
   async function fetchFms() {
     const order = $('order').value.trim();
     if (!order) { msg('fms-msg', 'Bắn mã đơn trước.', 'err'); return false; }
-    const key = $('key').value.trim(); store(KEY_STORE, key);
-    const station = $('fms-station').value.trim(); store(STATION_STORE, station);
+    const station = $('fms-station').value;
+    if (!station || stationsFor !== order.toUpperCase()) { msg('fms-msg', 'Chọn station trước.', 'err'); return false; }
+    store(STATION_STORE, station);
     $('fms-api').disabled = true;
     try {
       msg('fms-msg', `Đang tra ${order} trên FMS…`);
-      const r = await rpc('uiFmsFetch', key, order, station);
+      const r = await rpc('uiFmsFetch', order, station);
       if (!r.ok) { msg('fms-msg', r.message, 'err'); return false; }
-      if (!station && r.station) { $('fms-station').value = r.station; store(STATION_STORE, r.station); }
       setFms([r.header, ...r.rows], `FMS ${r.to}`);
       const warn = r.missingTime ? `\nThiếu giờ quét ${r.missingTime}/${r.total} đơn.` : '';
       msg('fms-msg', `Đơn ${r.order} thuộc ${r.to} tại ${r.station} (quét ${String(r.scanTime || '?').replace('T', ' ')}). ` +
@@ -466,7 +494,7 @@
         (r.listFields && r.listFields.length ? `\nTrường API danh sách TO: ${r.listFields.slice(0, 12).join(', ')}` : ''), r.missingTime ? 'err' : 'okc');
       return true;
     } catch (e) { msg('fms-msg', 'Không lấy được từ FMS: ' + (e && e.message || e), 'err'); return false; }
-    finally { $('fms-api').disabled = false; }
+    finally { $('fms-api').disabled = !$('fms-station').value; }
   }
 
   // ---------- FMS ----------
@@ -496,14 +524,13 @@
   });
   $('fms-gas').addEventListener('click', async () => {
     const order = $('order').value.trim(); if (!order) { msg('fms-msg', 'Bắn mã đơn trước.', 'err'); return; }
-    const key = $('key').value.trim(); store(KEY_STORE, key);
-    try { msg('fms-msg', 'Đang lấy từ webapp…'); const r = await rpc('uiFmsBag', key, order); setFms([r.header, ...r.rows], 'Sheet FMS'); }
+    try { msg('fms-msg', 'Đang lấy từ webapp…'); const r = await rpc('uiFmsBag', order); setFms([r.header, ...r.rows], 'Sheet FMS'); }
     catch (e) { msg('fms-msg', 'Không lấy được: ' + (e && e.message || e), 'err'); }
   });
   $('order').addEventListener('keydown', async (e) => {
     if (e.key !== 'Enter') return;
     const has = st.fms && A.fms.orderPosition(st.fms.scans, $('order').value);
-    if (!has && inGas()) await fetchFms();
+    if (!has && inGas()) await loadStations();
     showFmsPos(); $('order').select();
   });
   function fmsPos() { return st.fms && $('order').value.trim() ? A.fms.orderPosition(st.fms.scans, $('order').value) : null; }
@@ -752,7 +779,6 @@
     return samples;
   }
   $('train-save').addEventListener('click', async () => {
-    const key = $('key').value.trim(); store(KEY_STORE, key);
     setBusy(true);
     try {
       msg('train-msg', 'Đang chuẩn bị ảnh mẫu…');
@@ -761,10 +787,10 @@
       let done = 0;
       for (const s of samples) {
         const { frames, ...meta } = s;
-        await rpc('uiSaveTrainingSample', key, meta, frames.map((d, i) => ({ name: 'f' + i, base64: d.split(',')[1] })));
+        await rpc('uiSaveTrainingSample', meta, frames.map((d, i) => ({ name: 'f' + i, base64: d.split(',')[1] })));
         msg('train-msg', `Đã lưu ${++done}/${samples.length} mẫu…`);
       }
-      const stats = await rpc('uiTrainingStats', key).catch(() => null);
+      const stats = await rpc('uiTrainingStats').catch(() => null);
       msg('train-msg', `Đã lưu ${samples.length} mẫu.` + (stats ? ` Tổng trên webapp: ${stats.total} (đúng ${stats.bo_vao}, sai ${stats.sai}, không có kiện ${stats.khong_kien}).` : ''), 'okc');
     } catch (e) { msg('train-msg', 'Không lưu được: ' + (e && e.message || e) + '\nCó thể bấm "Tải file mẫu về máy" rồi gửi file.', 'err'); }
     finally { setBusy(false); trainBtns(); }
@@ -787,11 +813,9 @@
   });
 
   // ---------- lưu ----------
-  $('key').value = load(KEY_STORE);
   $('save').addEventListener('click', async () => {
     if (!st.target || !st.ev) return;
     const order = $('order').value.trim(); if (!order) { msg('save-msg', 'Nhập mã đơn trước khi lưu.', 'err'); return; }
-    const key = $('key').value.trim(); store(KEY_STORE, key);
     let rec;
     if (st.fmsResult) {
       const f = st.fmsResult;
@@ -819,11 +843,11 @@
     $('save').disabled = true;
     try {
       msg('save-msg', 'Đang lưu kết quả…');
-      await rpc('uiSaveMark', key, rec);
+      await rpc('uiSaveMark', rec);
       for (const kind of ['marked', 'crop', 'full']) {
         msg('save-msg', 'Đang tải ảnh ' + kind + '…');
         const b64 = st.ev[kind].split(',')[1];
-        await rpc('uiUploadEvidence', key, { resultId: rec.id, kind, fileName: kind + '.jpg', mimeType: 'image/jpeg', base64: b64 });
+        await rpc('uiUploadEvidence', { resultId: rec.id, kind, fileName: kind + '.jpg', mimeType: 'image/jpeg', base64: b64 });
       }
       msg('save-msg', 'Đã lưu. Mở "Tra cứu kết quả" và tìm mã ' + order + '.', 'okc');
     } catch (e) { msg('save-msg', 'Không lưu được: ' + (e && e.message || e), 'err'); }

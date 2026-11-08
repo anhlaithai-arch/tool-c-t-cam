@@ -3,7 +3,8 @@
  * Hợp đồng API: docs/KIEN_TRUC_WEBAPP.md
  *
  * Lần đầu: chạy setup() trong trình soạn thảo Apps Script, rồi Deploy > Web app
- * (Execute as: Me, Who has access: Anyone). setup() in ra API_TOKEN và VIEW_KEY trong Log.
+ * (Execute as: Me, Who has access: Anyone). setup() in ra API_TOKEN trong Log (chỉ dùng cho app Python).
+ * Không có khóa nhóm (bỏ 2026-11-09): ai có link webapp đều dùng được.
  */
 
 var RESULT_SHEET_NAME = 'KetQua';
@@ -24,7 +25,6 @@ var MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 function setup() {
   var p = PropertiesService.getScriptProperties();
   if (!p.getProperty('API_TOKEN')) p.setProperty('API_TOKEN', Utilities.getUuid().replace(/-/g, ''));
-  if (!p.getProperty('VIEW_KEY')) p.setProperty('VIEW_KEY', Utilities.getUuid().slice(0, 8));
   if (!p.getProperty('RESULT_SHEET_ID')) p.setProperty('RESULT_SHEET_ID', DEFAULT_RESULT_SHEET_ID);
   if (!p.getProperty('TRAIN_FOLDER_ID')) {
     p.setProperty('TRAIN_FOLDER_ID', DriveApp.createFolder('Du lieu huan luyen dem kien').getId());
@@ -34,7 +34,6 @@ function setup() {
   }
   getResultSheet_();
   Logger.log('API_TOKEN=%s', p.getProperty('API_TOKEN'));
-  Logger.log('VIEW_KEY=%s', p.getProperty('VIEW_KEY'));
   Logger.log('Sheet: https://docs.google.com/spreadsheets/d/%s', p.getProperty('RESULT_SHEET_ID'));
 }
 
@@ -79,17 +78,7 @@ function include(name) {
   return HtmlService.createHtmlOutputFromFile(name).getContent();
 }
 
-function checkViewKey_(viewKey) {
-  var k = prop_('VIEW_KEY');
-  if (!k || String(viewKey || '') !== k) throw new Error('Sai khóa xem');
-}
-
-function uiCheckKey(viewKey) {
-  try { checkViewKey_(viewKey); return true; } catch (e) { return false; }
-}
-
-function uiSearch(viewKey, query) {
-  checkViewKey_(viewKey);
+function uiSearch(query) {
   var q = String(query || '').trim().toUpperCase();
   var rows = readAll_();
   var items;
@@ -104,8 +93,7 @@ function uiSearch(viewKey, query) {
   return { items: items };
 }
 
-function uiGetResult(viewKey, id) {
-  checkViewKey_(viewKey);
+function uiGetResult(id) {
   var found = findRow_(id);
   if (!found) throw new Error('Không tìm thấy kết quả ' + id);
   var r = found.record;
@@ -121,14 +109,12 @@ function uiGetResult(viewKey, id) {
 }
 
 /** Trang Đếm kiện lưu kết quả đánh dấu (cùng cấu trúc bản ghi với API submitResult). */
-function uiSaveMark(viewKey, record) {
-  checkViewKey_(viewKey);
+function uiSaveMark(record) {
   return submitResult_(record || {});
 }
 
 /** Trang Đếm kiện tải ảnh bằng chứng (từng ảnh một). */
-function uiUploadEvidence(viewKey, data) {
-  checkViewKey_(viewKey);
+function uiUploadEvidence(data) {
   return uploadEvidence_(data || {});
 }
 
@@ -161,8 +147,7 @@ function trainFolderFor_(bag) {
 }
 
 /** Lưu một mẫu (ghi đè theo id): images = [{name, base64}] (JPEG nhỏ). */
-function uiSaveTrainingSample(viewKey, sample, images) {
-  checkViewKey_(viewKey);
+function uiSaveTrainingSample(sample, images) {
   if (!sample || !sample.id) throw new Error('Thiếu id mẫu');
   if (TRAIN_LABELS.indexOf(sample.label) < 0) throw new Error('Nhãn không hợp lệ: ' + sample.label);
   if (!images || !images.length || images.length > 6) throw new Error('Cần 1-6 ảnh mỗi mẫu');
@@ -204,8 +189,7 @@ function uiSaveTrainingSample(viewKey, sample, images) {
 }
 
 /** Thống kê số mẫu theo nhãn. */
-function uiTrainingStats(viewKey) {
-  checkViewKey_(viewKey);
+function uiTrainingStats() {
   var sh = getTrainSheet_();
   var n = sh.getLastRow();
   var out = { total: 0, bo_vao: 0, sai: 0, khong_ro: 0, khong_kien: 0 };
@@ -343,9 +327,24 @@ function fmsToOrders_(to, cookie) {
   return { items: items.filter(function (x) { return x.order; }), fields: fields };
 }
 
+/**
+ * Giao diện: bắn mã đơn -> các hub mà đơn có TO, theo thứ tự hành trình.
+ * Mỗi hub: TO cuối cùng tại hub đó + giờ quét. Người dùng chọn hub rồi mới gọi uiFmsFetch.
+ */
+function uiFmsStations(orderCode) {
+  var code = String(orderCode || '').trim().toUpperCase();
+  if (!code) throw new Error('Thiếu mã đơn');
+  var d = fmsFetch_('/api/fleet_order/order/detail/tracking_info?shipment_id=' + encodeURIComponent(code), 'tra đơn ' + code, fmsCookie_());
+  var ev = fmsFlatten_(d && d.tracking_list);
+  var list = fmsStations_(ev).map(function (s) {
+    var r = fmsToAtStation_(ev, s);
+    return r ? { station: r.station, to: r.to, scanTime: r.scanTs ? fmsLocalIso_(r.scanTs) : null } : null;
+  }).filter(Boolean);
+  return { order: code, stations: list, allStations: fmsStations_(ev) };
+}
+
 /** Giao diện: bắn mã đơn -> TO tại hub + danh sách mọi đơn trong TO kèm giờ quét (bảng như file TO). */
-function uiFmsFetch(viewKey, orderCode, station) {
-  checkViewKey_(viewKey);
+function uiFmsFetch(orderCode, station) {
   var code = String(orderCode || '').trim().toUpperCase();
   if (!code) throw new Error('Thiếu mã đơn');
   var cookie = fmsCookie_();
@@ -381,8 +380,7 @@ function uiFmsFetch(viewKey, orderCode, station) {
     missingTime: rows.filter(function (r) { return !r[1]; }).length, source: source, listFields: list.fields };
 }
 
-function uiPackingTime(viewKey, orderCode) {
-  checkViewKey_(viewKey);
+function uiPackingTime(orderCode) {
   return { orderCode: String(orderCode || '').trim(), packingTime: lookupPackingTime_(orderCode) };
 }
 
@@ -558,8 +556,7 @@ function fmsBagRows_(orderCode) {
   return { header: ['Mã đơn', 'Thời gian quét', 'Mã bao'], rows: rows };
 }
 
-function uiFmsBag(viewKey, orderCode) {
-  checkViewKey_(viewKey);
+function uiFmsBag(orderCode) {
   return fmsBagRows_(orderCode);
 }
 
