@@ -24,6 +24,27 @@ Mục tiêu: đáp ứng `docs/QUY_TAC_DEM.md` – chỉ tính kiện **người
 5. **Lấy ra (−1)**: cổ tay người bắn hàng đi **vào trong** đa giác miệng bao rồi rút ra, kèm chuyển động đi ra ngoài miệng bao → đề xuất **−1**, mặc định cần người duyệt xác nhận.
 6. Chỉ chạy mô hình tư thế quanh các lượt (khoảng 10 khung mỗi lượt), không chạy toàn video, để giữ tốc độ trong trình duyệt.
 
+## Thử gán kiện cho người bắn hàng (đoạn 11:00–14:10, người bắn hàng = áo đỏ sẫm)
+
+Nhãn người ném: 43–46 kiện của người bắn hàng, 3 kiện người áo xám, 1 lượt người đi ngang (`tests/fixtures/eval_labels_center_660_850.json`, trường `who`).
+Theo dõi tư thế **liên tục** 12,5 khung/giây cả đoạn (`app/tools/pose_track.py`): người bắn hàng được bám ở **96%** số khung, kể cả khi đứng dậy.
+
+| Cách gán | Độ chính xác | Độ phủ | Loại kiện người khác |
+|---|---|---|---|
+| Chỉ chuyển động trong vùng khoanh (v2) | ~86% | ~84% | Không |
+| Cổ tay gần miệng bao nhất (`attribute_pose.py`) | 71% | 67% | Không |
+| Tốc độ cổ tay lao về miệng bao (`attribute_track.py`) | 70% | 44% | Không |
+| **Điểm kiện đi vào viền miệng bao + cổ tay gần điểm đó** (`entry_direction.py`) | **81–85%** | **79–84%** | Được 2–3/3 |
+
+Nhận xét:
+- Cả hai người ngồi sát bao, cổ tay ai cũng gần miệng bao → khoảng cách đơn thuần không phân biệt được.
+- Điểm cổ tay rung nhiễu giữa các khung; động tác thả kiện của người bắn hàng ngắn → tốc độ không dùng được.
+- Hướng đi vào: kiện người bắn hàng vào từ trên/trái (220–340°), người áo xám ném vòng qua phía trên-phải (288–345°) → chỉ dùng góc vẫn lẫn.
+- Lỗi còn lại chủ yếu do ID người khác bị đổi qua lại khi bị che, và lượt có người đi ngang.
+
+**Kết luận:** mô hình có sẵn + luật tay đạt khoảng 80–85%. Không đủ để tự đánh dấu đơn mà không cần người duyệt.
+Muốn vượt mức này cần: (a) dữ liệu thời gian quét mã từng đơn từ FMS, hoặc (b) huấn luyện mô hình nhận kiện/động tác riêng trên video của kho (vài trăm lượt gán nhãn).
+
 ## Mô hình khác đã tìm (chưa thử)
 
 - **RF-DETR** (Apache-2.0 cho bản Nano–Large, xuất ONNX được): nếu sau này huấn luyện mô hình nhận kiện riêng.
