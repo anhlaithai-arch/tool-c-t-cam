@@ -260,6 +260,57 @@ function lookupPackingTime_(orderCode) {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Dữ liệu quét FMS trên Google Sheet: dán bảng xuất từ FMS (có hàng tiêu đề: mã đơn, giờ quét, mã bao)
+// vào sheet "FMS" của spreadsheet kết quả, hoặc cấu hình FMS_SHEET_ID / FMS_SHEET_NAME.
+// ---------------------------------------------------------------------------
+function stripVi_(s) {
+  return String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase().trim();
+}
+
+function fmsColumns_(header) {
+  var h = header.map(stripVi_);
+  function pick(hints, exclude) {
+    for (var j = 0; j < hints.length; j++) {
+      for (var i = 0; i < h.length; i++) if (exclude.indexOf(i) < 0 && h[i].indexOf(hints[j]) >= 0) return i;
+    }
+    return -1;
+  }
+  var bag = pick(['ma bao', 'bao', 'bag', 'tui', 'sack', 'container'], []);
+  var order = pick(['ma don', 'ma van don', 'van don', 'order', 'tracking', 'awb', 'shipment', 'ma kien', 'parcel'], [bag]);
+  var time = pick(['thoi gian', 'gio quet', 'scan time', 'time', 'ngay gio', 'packing', 'dong goi', 'created', 'timestamp'], [bag, order]);
+  return { order: order, time: time, bag: bag };
+}
+
+/** Trả {header, rows} gồm mọi lần quét thuộc (các) bao chứa đơn này; giờ dạng yyyy-MM-ddTHH:mm:ss. */
+function fmsBagRows_(orderCode) {
+  var code = String(orderCode || '').trim().toUpperCase();
+  if (!code) throw new Error('Thiếu mã đơn');
+  var sid = prop_('FMS_SHEET_ID') || prop_('RESULT_SHEET_ID');
+  var sh = SpreadsheetApp.openById(sid).getSheetByName(prop_('FMS_SHEET_NAME') || 'FMS');
+  if (!sh) throw new Error('Chưa có sheet "FMS" chứa dữ liệu quét (mã đơn, giờ quét, mã bao)');
+  var values = sh.getDataRange().getValues();
+  if (values.length < 2) return { header: values[0] || [], rows: [] };
+  var c = fmsColumns_(values[0]);
+  if (c.order < 0 || c.time < 0 || c.bag < 0) throw new Error('Sheet FMS thiếu cột mã đơn / giờ quét / mã bao');
+  var bags = {};
+  for (var i = 1; i < values.length; i++) {
+    if (String(values[i][c.order]).trim().toUpperCase() === code) bags[String(values[i][c.bag]).trim().toUpperCase()] = true;
+  }
+  var rows = [];
+  for (var k = 1; k < values.length; k++) {
+    var b = String(values[k][c.bag]).trim().toUpperCase();
+    if (bags[b]) rows.push([String(values[k][c.order]).trim(), toIsoLocal_(values[k][c.time]), b]);
+  }
+  return { header: ['Mã đơn', 'Thời gian quét', 'Mã bao'], rows: rows };
+}
+
+function uiFmsBag(viewKey, orderCode) {
+  checkViewKey_(viewKey);
+  return fmsBagRows_(orderCode);
+}
+
 function toIsoLocal_(v) {
   if (v instanceof Date) {
     return Utilities.formatDate(v, Session.getScriptTimeZone(), "yyyy-MM-dd'T'HH:mm:ss");
