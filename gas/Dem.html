@@ -133,7 +133,8 @@
     <div class="panel">
       <h2>4. Duyệt các lượt bỏ kiện</h2>
       <div class="stats" id="stats"><span class="muted">Chưa đếm.</span></div>
-      <p class="muted">AI chỉ đề xuất. Lượt "nghi người che" mặc định không tính. Bấm ảnh để xem lại đoạn đó.</p>
+      <p class="muted">AI chỉ đề xuất. Lượt "nghi người che" và "cần kiểm tra" mặc định KHÔNG tính – xem lại và bấm ✓ nếu có kiện. Bấm ảnh để xem lại đoạn đó.</p>
+      <label><input id="only-review" type="checkbox"> Chỉ hiện lượt cần xem lại</label>
       <ul id="events"></ul>
     </div>
 
@@ -292,14 +293,17 @@
     const n = numbered();
     const pend = n.items.filter((i) => i.decision === 'pending').length;
     const add = (label, v) => { const sp = document.createElement('span'); sp.append(label + ': '); sp.append(Object.assign(document.createElement('b'), { textContent: v })); s.append(sp); };
-    add('Số kiện đang tính', n.total); add('Lượt nghi vấn', n.items.length); add('Chưa duyệt', pend);
+    const review = n.items.filter((i) => i.kind !== 'drop' && i.decision === 'pending').length;
+    add('Số kiện đang tính', n.total); add('Lượt nghi vấn', n.items.length); add('Cần xem lại', review); add('Chưa duyệt', pend);
   }
   function renderEvents() {
     renderStats();
     const ul = $('events'); ul.replaceChildren();
     if (!st.scan) return;
     const n = numbered();
+    const onlyReview = $('only-review').checked;
     for (const it of n.items) {
+      if (onlyReview && it.kind === 'drop' && it.decision === 'pending') continue;
       const li = document.createElement('li'); li.className = 'ev' + (st.target && st.target.id === it.id ? ' target' : '');
       li.dataset.id = it.id;
       const img = document.createElement('img'); img.alt = 'Lượt lúc ' + fmt(it.peakS); img.dataset.thumb = it.id;
@@ -309,8 +313,8 @@
       const head = document.createElement('div'); head.className = 'head';
       head.append(Object.assign(document.createElement('span'), { className: 'num', textContent: it.counted ? 'Kiện #' + it.label : 'Không tính' }));
       const badge = document.createElement('span');
-      badge.className = 'badge ' + (it.decision === 'accept' ? 'b-acc' : it.decision === 'reject' ? 'b-rej' : it.kind === 'occlusion' ? 'b-occ' : 'b-pend');
-      badge.textContent = it.decision === 'accept' ? 'Đã xác nhận' : it.decision === 'reject' ? 'Đã bỏ' : it.kind === 'occlusion' ? 'Nghi người che' : 'AI đề xuất';
+      badge.className = 'badge ' + (it.decision === 'accept' ? 'b-acc' : it.decision === 'reject' ? 'b-rej' : it.kind === 'drop' ? 'b-pend' : 'b-occ');
+      badge.textContent = it.decision === 'accept' ? 'Đã xác nhận' : it.decision === 'reject' ? 'Đã bỏ' : it.kind === 'occlusion' ? 'Nghi người che' : it.kind === 'weak' ? 'Cần kiểm tra' : 'AI đề xuất';
       head.append(badge);
       body.append(head);
       body.append(Object.assign(document.createElement('div'), { className: 'muted', textContent: `${fmt(it.startS)}–${fmt(it.endS)}${st.sync ? ' · ' + wallStr(it.peakS) : ''} · ${it.reason}` }));
@@ -324,6 +328,7 @@
       li.append(img, body); ul.append(li);
     }
   }
+  $('only-review').addEventListener('change', renderEvents);
   function decide(id, d) { st.decisions[id] = st.decisions[id] === d ? undefined : d; renderEvents(); if (st.target) mark(true); }
   function setCount(id, d) { st.counts[id] = Math.max(1, Math.min(9, (st.counts[id] || 1) + d)); if (!st.decisions[id]) st.decisions[id] = 'accept'; renderEvents(); if (st.target) mark(true); }
   async function replay(it) {

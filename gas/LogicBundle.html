@@ -159,11 +159,14 @@ var CountingApp = (() => {
   var motion_exports = {};
   __export(motion_exports, {
     DEFAULTS: () => DEFAULTS,
+    REFINE: () => REFINE,
     boxBlur: () => boxBlur,
     changedFraction: () => changedFraction,
     detectEvents: () => detectEvents,
+    eventFeatures: () => eventFeatures,
     nearestEvent: () => nearestEvent,
-    numberEvents: () => numberEvents
+    numberEvents: () => numberEvents,
+    refineEvents: () => refineEvents
   });
   function boxBlur(img) {
     const { w, h, data } = img;
@@ -263,11 +266,57 @@ var CountingApp = (() => {
         endS: times[b],
         peakS: times[peakIdx],
         peakIdx,
+        startIdx: a,
+        endIdx: b,
         maxAct,
         durationS,
         kind,
         reason
       };
+    });
+  }
+  function eventFeatures(grays, ev, thr = 18) {
+    const before = grays[Math.max(0, ev.startIdx - 2)], peak = grays[ev.peakIdx];
+    const { w, h } = peak;
+    let bot = 0, nb = 0, inn = 0, ni = 0;
+    const y80 = Math.floor(0.8 * h), x0 = Math.floor(0.15 * w), x1 = Math.ceil(0.85 * w), y0 = Math.floor(0.15 * h), y1 = Math.ceil(0.85 * h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const ch = Math.abs(peak.data[y * w + x] - before.data[y * w + x]) > thr ? 1 : 0;
+        if (y >= y80) {
+          bot += ch;
+          nb++;
+        }
+        if (y >= y0 && y < y1 && x >= x0 && x < x1) {
+          inn += ch;
+          ni++;
+        }
+      }
+    }
+    return { bottom: nb ? bot / nb : 0, inner: ni ? inn / ni : 0 };
+  }
+  var REFINE = {
+    bottomMax: 0.3,
+    // đáy vùng đổi > 30% -> nghi người che
+    weakAct: 0.065,
+    // lượt yếu ...
+    weakInner: 0.02
+    // ... và gần như không đổi ở lõi -> cần kiểm tra
+  };
+  function refineEvents(events, grays, opts = {}) {
+    const o = { ...REFINE, ...opts };
+    return events.map((e) => {
+      if (e.kind !== "drop" || !grays[e.peakIdx]) return e;
+      const f = eventFeatures(grays, e);
+      const out = { ...e, features: f };
+      if (f.bottom > o.bottomMax) {
+        out.kind = "occlusion";
+        out.reason = `Đổi ${(f.bottom * 100).toFixed(0)}% đáy vùng – có thể người đứng/đi trước bao`;
+      } else if (e.maxAct < o.weakAct && f.inner < o.weakInner) {
+        out.kind = "weak";
+        out.reason = "Chuyển động yếu ở mép vùng – cần kiểm tra";
+      }
+      return out;
     });
   }
   function numberEvents(events, decisions = {}, counts = {}) {
@@ -317,7 +366,7 @@ var CountingApp = (() => {
     cv.width = w;
     cv.height = h;
     const ctx = cv.getContext("2d", { willReadFrequently: true });
-    const times = [], act = [];
+    const times = [], act = [], grays = [];
     let prev = null;
     const dt = 1 / fps;
     for (let t = startS; t <= endS; t += dt) {
@@ -327,12 +376,14 @@ var CountingApp = (() => {
       ctx.drawImage(video, roi.x, roi.y, roi.w, roi.h, 0, 0, w, h);
       const g = boxBlur(grayOf(ctx, w, h));
       times.push(mt);
+      grays.push(g);
       act.push(prev ? changedFraction(prev, g) : 0);
       prev = g;
       if (onProgress && times.length % 10 === 0) onProgress(t - startS, endS - startS);
     }
     onProgress?.(endS - startS, endS - startS);
-    return { times, act, events: detectEvents(times, act, opts) };
+    const events = refineEvents(detectEvents(times, act, opts), grays, opts);
+    return { times, act, events };
   }
   function contextBox(roi, W, H, grow = 0.6) {
     const cx = roi.x + roi.w / 2, cy = roi.y + roi.h / 2;

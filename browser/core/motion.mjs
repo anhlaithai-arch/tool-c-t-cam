@@ -84,9 +84,56 @@ export function detectEvents(times, act, opts = {}) {
     else if (durationS > o.occlusionDurS) { kind = 'occlusion'; reason = `Kéo dài ${durationS.toFixed(1)}s – có thể thao tác lâu/người che`; }
     return {
       id: `ev_${Math.round(times[peakIdx] * 1000)}`, // ID cố định theo thời điểm, không theo thứ tự
-      startS: times[a], endS: times[b], peakS: times[peakIdx], peakIdx,
+      startS: times[a], endS: times[b], peakS: times[peakIdx], peakIdx, startIdx: a, endIdx: b,
       maxAct, durationS, kind, reason,
     };
+  });
+}
+
+/**
+ * Đặc trưng vị trí của một lượt, so khung đỉnh với khung ngay trước lượt (ảnh xám nhỏ của vùng khoanh):
+ *  bottom = tỷ lệ điểm đổi ở 20% đáy vùng (người đứng/đi trước bao phủ cả đáy; kiện ném vào thì không)
+ *  inner  = tỷ lệ điểm đổi ở lõi vùng (bỏ 15% mỗi mép)
+ */
+export function eventFeatures(grays, ev, thr = 18) {
+  const before = grays[Math.max(0, ev.startIdx - 2)], peak = grays[ev.peakIdx];
+  const { w, h } = peak;
+  let bot = 0, nb = 0, inn = 0, ni = 0;
+  const y80 = Math.floor(0.8 * h), x0 = Math.floor(0.15 * w), x1 = Math.ceil(0.85 * w), y0 = Math.floor(0.15 * h), y1 = Math.ceil(0.85 * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const ch = Math.abs(peak.data[y * w + x] - before.data[y * w + x]) > thr ? 1 : 0;
+      if (y >= y80) { bot += ch; nb++; }
+      if (y >= y0 && y < y1 && x >= x0 && x < x1) { inn += ch; ni++; }
+    }
+  }
+  return { bottom: nb ? bot / nb : 0, inner: ni ? inn / ni : 0 };
+}
+
+export const REFINE = {
+  bottomMax: 0.3,   // đáy vùng đổi > 30% -> nghi người che
+  weakAct: 0.065,   // lượt yếu ...
+  weakInner: 0.02,  // ... và gần như không đổi ở lõi -> cần kiểm tra
+};
+
+/**
+ * Phân loại lại lượt 'drop' bằng đặc trưng vị trí (đo trên video mẫu 2026-11-08, docs/DO_CHINH_XAC.md).
+ * Không xóa lượt nào: chỉ chuyển sang 'occlusion' / 'weak' để người duyệt.
+ */
+export function refineEvents(events, grays, opts = {}) {
+  const o = { ...REFINE, ...opts };
+  return events.map((e) => {
+    if (e.kind !== 'drop' || !grays[e.peakIdx]) return e;
+    const f = eventFeatures(grays, e);
+    const out = { ...e, features: f };
+    if (f.bottom > o.bottomMax) {
+      out.kind = 'occlusion';
+      out.reason = `Đổi ${(f.bottom * 100).toFixed(0)}% đáy vùng – có thể người đứng/đi trước bao`;
+    } else if (e.maxAct < o.weakAct && f.inner < o.weakInner) {
+      out.kind = 'weak';
+      out.reason = 'Chuyển động yếu ở mép vùng – cần kiểm tra';
+    }
+    return out;
   });
 }
 

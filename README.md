@@ -31,7 +31,7 @@ python -m venv .venv
 |---|---|
 | Mở video local trong trình duyệt, tua đúng khung | Đạt trên Chrome local (78/78 khung chuẩn). Chưa thử trong iframe GAS |
 | Đọc đồng hồ camera (mẫu chữ số, JS) + đồng bộ giờ | Đạt trên video mẫu: 50/50 khung, ±0,02s, khớp Python |
-| Khoanh miệng bao, quét chuyển động, đề xuất lượt bỏ kiện | Chạy được: 3 phút video quét trong ~46s. **Độ chính xác chưa đo** (chưa có video đếm tay) |
+| Khoanh miệng bao, quét chuyển động, đề xuất lượt bỏ kiện | Chạy được: 3 phút video quét trong ~46s. Đo sơ bộ trên 1 đoạn: chính xác 90,5%, phủ ~83%, kiện còn lại nằm trong nhóm "cần xem lại" (`docs/DO_CHINH_XAC.md`) |
 | Duyệt lượt (tính/bỏ/số kiện), đánh thứ tự, đánh dấu đơn theo mm:ss / giờ camera / #thứ tự | Chạy được trên trình duyệt local |
 | Ảnh bằng chứng (nguyên khung, đánh dấu, cắt) + lưu lên Sheet/Drive | Code xong, **chưa chạy trên GAS thật** |
 | Lấy giờ packing từ FMS | Chưa làm (để sau) |

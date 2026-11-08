@@ -1,6 +1,6 @@
 // Quét video trong vùng khoanh để tìm lượt bỏ kiện, và lấy ảnh bằng chứng. Chạy trong trình duyệt.
 import { seek } from './video.mjs';
-import { boxBlur, changedFraction, detectEvents } from './core/motion.mjs';
+import { boxBlur, changedFraction, detectEvents, refineEvents } from './core/motion.mjs';
 
 const MAX_W = 160; // thu nhỏ vùng khoanh để quét nhanh
 
@@ -21,7 +21,7 @@ export async function scanRange(video, roi, { startS = 0, endS = video.duration,
   const cv = document.createElement('canvas');
   cv.width = w; cv.height = h;
   const ctx = cv.getContext('2d', { willReadFrequently: true });
-  const times = [], act = [];
+  const times = [], act = [], grays = [];
   let prev = null;
   const dt = 1 / fps;
   for (let t = startS; t <= endS; t += dt) {
@@ -31,12 +31,14 @@ export async function scanRange(video, roi, { startS = 0, endS = video.duration,
     ctx.drawImage(video, roi.x, roi.y, roi.w, roi.h, 0, 0, w, h);
     const g = boxBlur(grayOf(ctx, w, h));
     times.push(mt);
+    grays.push(g);
     act.push(prev ? changedFraction(prev, g) : 0);
     prev = g;
     if (onProgress && times.length % 10 === 0) onProgress(t - startS, endS - startS);
   }
   onProgress?.(endS - startS, endS - startS);
-  return { times, act, events: detectEvents(times, act, opts) };
+  const events = refineEvents(detectEvents(times, act, opts), grays, opts);
+  return { times, act, events };
 }
 
 /** Vùng ngữ cảnh quanh vùng khoanh (rộng thêm 60%), kẹp trong khung hình. */
