@@ -27,6 +27,6 @@ const local = (file, vars) => {
   if (/<\?/.test(html)) throw new Error(`${file}: còn scriptlet GAS chưa thay`);
   writeFileSync(join(root, 'dist', file.toLowerCase()), html);
 };
-local('Dem.html', { baseUrl: '""' });
+local('Dem.html', { baseUrl: '' });
 local('Index.html', { demUrl: 'dem.html' });
 console.log(`LogicBundle.html: ${(bundle.length / 1024).toFixed(1)} KB; dist/dem.html, dist/index.html`);

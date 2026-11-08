@@ -54,7 +54,7 @@
   details summary { cursor: pointer; font-weight: 600; }
 </style>
 </head>
-<body>
+<body data-base="<?= baseUrl ?>">
 <header>
   <h1>Đếm kiện vào bao</h1>
   <nav class="muted"><a id="lnk-lookup" href="#">Tra cứu kết quả</a></nav>
@@ -849,7 +849,7 @@
   });
 
   // ---------- liên kết & chế độ dev ----------
-  const base = <?= baseUrl ?>; // GAS in ra chuỗi JS đã escape; bản local build thay bằng ""
+  const base = document.body.dataset.base || ''; // URL webapp do GAS in vào thuộc tính data-base (không chèn scriptlet vào JS)
   $('lnk-lookup').href = base || '#';
   const q = new URLSearchParams(location.search);
   if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname) && q.get('src')) {
