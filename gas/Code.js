@@ -714,3 +714,33 @@ function testFms(orderCode) {
       r.missingTime, r.scanTime, JSON.stringify((r.rows || []).slice(0, 3)), r.message || '');
   });
 }
+
+/**
+ * Thử tracking_info với nhiều cách gửi (cookie tối giản như script admin của người dùng / cookie đầy đủ G3, có/không header trình duyệt).
+ * Không in cookie.
+ */
+function testTracking(orderCode) {
+  var code = orderCode || 'SPXVN06210282080B';
+  var ss = SpreadsheetApp.openById(prop_('FMS_COOKIE_SHEET_ID') || DEFAULT_FMS_COOKIE_SHEET_ID);
+  var gid = Number(prop_('FMS_COOKIE_GID') || DEFAULT_FMS_COOKIE_GID);
+  var sh = ss.getSheets().filter(function (x) { return x.getSheetId() === gid; })[0];
+  var uid = String(sh.getRange('G1').getValue() || '').trim(), uk = String(sh.getRange('G2').getValue() || '').trim();
+  var full = String(sh.getRange('G3').getValue() || '').trim().replace(/^cookie:\s*/i, '');
+  var mini = 'spx_uid=' + uid + '; spx_uk=' + uk + '; spx_st=1; spx_cid=VN';
+  var url = FMS_BASE + '/api/fleet_order/order/detail/tracking_info?shipment_id=' + encodeURIComponent(code);
+  var browser = { Referer: FMS_BASE + '/', Origin: FMS_BASE, 'X-Requested-With': 'XMLHttpRequest' };
+  function h(cookie, extra) { var o = { Cookie: cookie, Accept: 'application/json' }; for (var k in (extra || {})) o[k] = extra[k]; return o; }
+  var cases = [
+    ['A cookie tối giản G1/G2, chỉ Accept (như script admin)', h(mini)],
+    ['B cookie tối giản + header trình duyệt', h(mini, browser)],
+    ['C cookie đầy đủ G3, chỉ Accept', full ? h(full) : null],
+    ['D cookie đầy đủ G3 + header trình duyệt (cách hiện tại)', full ? h(full, browser) : null],
+  ];
+  cases.forEach(function (c) {
+    if (!c[1]) { Logger.log('%s: bỏ qua (G3 trống)', c[0]); return; }
+    var r = UrlFetchApp.fetch(url, { headers: c[1], muteHttpExceptions: true, followRedirects: false });
+    var body = String(r.getContentText() || '').replace(/\s+/g, ' ');
+    var tos = (body.match(/TO\d{8}[A-Z0-9]{5}/g) || []).filter(function (t, i, a) { return a.indexOf(t) === i; });
+    Logger.log('%s: HTTP %s | TO thấy: %s | %s', c[0], r.getResponseCode(), tos.join(', ') || '-', body.slice(0, 160));
+  });
+}
