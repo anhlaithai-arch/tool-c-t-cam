@@ -699,7 +699,7 @@ function fmsDiagnose(orderCode, toNumber) {
  * Kèm in các trường của bản ghi admin có chứa TO/station để biết API có giữ TO cũ không.
  */
 function testFms(orderCode) {
-  var code = orderCode || 'SPXVN06627964263B';
+  var code = orderCode || 'SPXVN06210282080B';
   var cookie = fmsCookie_();
   var rec = fmsOrderRecord_(code, cookie);
   Object.keys(rec).forEach(function (k) {
