@@ -693,3 +693,24 @@ function fmsDiagnose(orderCode, toNumber) {
   return out;
 }
 
+
+/**
+ * Thử luồng trang Đếm ngay trong trình soạn thảo: mã đơn -> station -> TO -> danh sách đơn trong TO.
+ * Kèm in các trường của bản ghi admin có chứa TO/station để biết API có giữ TO cũ không.
+ */
+function testFms(orderCode) {
+  var code = orderCode || 'SPXVN06627964263B';
+  var cookie = fmsCookie_();
+  var rec = fmsOrderRecord_(code, cookie);
+  Object.keys(rec).forEach(function (k) {
+    var v = JSON.stringify(rec[k]);
+    if (/to|station|hub|time/i.test(k) || /TO\d{8}/.test(v)) Logger.log('rec.%s = %s', k, v.slice(0, 200));
+  });
+  var s = uiFmsStations(code);
+  Logger.log('STATIONS: %s', JSON.stringify(s));
+  s.stations.forEach(function (x) {
+    var r = uiFmsFetch(code, x.station);
+    Logger.log('FETCH %s: ok=%s to=%s total=%s missingTime=%s scan=%s | 3 dòng đầu: %s | %s', x.station, r.ok, r.to, r.total,
+      r.missingTime, r.scanTime, JSON.stringify((r.rows || []).slice(0, 3)), r.message || '');
+  });
+}
