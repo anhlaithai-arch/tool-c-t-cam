@@ -476,7 +476,8 @@
       if (req !== stationsReq) return;
       if (!r.stations.length) {
         sel.replaceChildren(new Option('— Không có station nào có TO —', ''));
-        msg('fms-msg', `Đơn ${order} chưa có dòng [TO…] ở station nào.` + (r.allStations.length ? ' Các station: ' + r.allStations.join(', ') : ''), 'err');
+        msg('fms-msg', `Đơn ${order} chưa có TO nào trên FMS.` + (r.currentStation ? ' Đang ở: ' + r.currentStation : '') +
+          (r.errors && r.errors.length ? '\nLỗi: ' + r.errors.join('; ') : ''), 'err');
         return;
       }
       stationsFor = order;
