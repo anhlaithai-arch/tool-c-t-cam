@@ -216,20 +216,23 @@ function fmsCookie_() {
   var sh = ss.getSheets().filter(function (x) { return x.getSheetId() === gid; })[0] ||
     ss.getSheetByName('Phân quyền') || ss.getSheetByName('🔐Cookies🔑');
   if (!sh) throw new Error('Không thấy tab chứa cookie (gid ' + gid + ' / "Phân quyền")');
-  // G3 (tùy chọn): chuỗi Cookie ĐẦY ĐỦ copy từ trình duyệt đang đăng nhập FMS (DevTools > Network > Request Headers > cookie).
-  // Một số API (tracking_info, danh sách TO) cần thêm cookie ngoài spx_uid/spx_uk -> 403 nếu thiếu.
-  var full = String(sh.getRange('G3').getValue() || '').trim();
-  if (full && full.indexOf('=') > 0) return full.replace(/^cookie:\s*/i, '');
+  // Mặc định gửi cookie TỐI GIẢN (G1/G2) + chỉ header Accept, giống script admin của người dùng đang chạy được.
+  // G3 (tùy chọn): chuỗi Cookie đầy đủ từ trình duyệt; chỉ dùng để thử lại khi cách tối giản bị 403.
+  var full = String(sh.getRange('G3').getValue() || '').trim().replace(/^cookie:\s*/i, '');
   var uid = String(sh.getRange('G1').getValue() || '').trim(), uk = String(sh.getRange('G2').getValue() || '').trim();
-  if (!uid || !uk) throw new Error('Tab "' + sh.getName() + '" thiếu G1 (spx_uid) hoặc G2 (spx_uk)');
-  return 'spx_uid=' + uid + '; spx_uk=' + uk + '; spx_st=1; spx_cid=VN';
+  var mini = uid && uk ? 'spx_uid=' + uid + '; spx_uk=' + uk + '; spx_st=1; spx_cid=VN' : '';
+  if (!mini && !(full.indexOf('=') > 0)) throw new Error('Tab "' + sh.getName() + '" thiếu G1 (spx_uid) hoặc G2 (spx_uk)');
+  return { mini: mini, full: full.indexOf('=') > 0 ? full : '' };
 }
 
-function fmsRequest_(path, cookie) {
-  // Header giống trình duyệt đang mở trang FMS: một số API kiểm tra Referer/Origin
-  return { url: FMS_BASE + path, muteHttpExceptions: true, followRedirects: false, headers: {
-    Cookie: cookie, Accept: 'application/json, text/plain, */*', Referer: FMS_BASE + '/', Origin: FMS_BASE,
-    'X-Requested-With': 'XMLHttpRequest' } };
+/** Yêu cầu FMS. alt=false: cookie tối giản + Accept (mặc định); alt=true: cookie đầy đủ G3 + header trình duyệt. */
+function fmsRequest_(path, cookie, alt) {
+  var c = typeof cookie === 'string' ? { mini: cookie, full: '' } : cookie;
+  if (alt && c.full) {
+    return { url: FMS_BASE + path, muteHttpExceptions: true, followRedirects: false, headers: {
+      Cookie: c.full, Accept: 'application/json, text/plain, */*', Referer: FMS_BASE + '/', Origin: FMS_BASE, 'X-Requested-With': 'XMLHttpRequest' } };
+  }
+  return { url: FMS_BASE + path, muteHttpExceptions: true, followRedirects: false, headers: { Cookie: c.mini || c.full, Accept: 'application/json' } };
 }
 
 /** Đoạn đầu nội dung trả về (để biết FMS từ chối vì gì); không chứa cookie. */
@@ -253,7 +256,15 @@ function fmsFetch_(path, what, cookie) {
   var last;
   for (var attempt = 1; attempt <= 3; attempt++) {
     try { return fmsParse_(UrlFetchApp.fetch(FMS_BASE + path, fmsRequest_(path, cookie)), what); }
-    catch (e) { last = e; if (/từ chối/.test(String(e.message))) throw e; Utilities.sleep(500 * attempt); }
+    catch (e) {
+      last = e;
+      if (/từ chối/.test(String(e.message))) {
+        // cách tối giản bị 403 -> thử một lần bằng cookie đầy đủ (nếu có G3)
+        if (cookie && cookie.full) return fmsParse_(UrlFetchApp.fetch(FMS_BASE + path, fmsRequest_(path, cookie, true)), what);
+        throw e;
+      }
+      Utilities.sleep(500 * attempt);
+    }
   }
   throw last;
 }
@@ -378,6 +389,24 @@ function fmsToInfos_(tos, code, cookie) {
 }
 
 /**
+ * Hành trình đơn (tracking_info) -> mỗi station có dòng [TO...]: TO cuối cùng tại station + giờ "packing into TO".
+ * Trả {ok:false, error} nếu FMS chặn để nơi gọi lùi về API admin.
+ */
+function fmsTrackingStations_(code, cookie) {
+  try {
+    var d = fmsFetch_('/api/fleet_order/order/detail/tracking_info?shipment_id=' + encodeURIComponent(code), 'tra hành trình ' + code, cookie);
+    var ev = fmsFlatten_(d && d.tracking_list);
+    var stations = fmsStations_(ev).map(function (s) {
+      var r = fmsToAtStation_(ev, s);
+      return r ? { station: r.station, to: r.to, scanTime: r.scanTs ? fmsLocalIso_(r.scanTs) : null, lastMessage: r.lastMessage } : null;
+    }).filter(Boolean);
+    return { ok: true, stations: stations, allStations: fmsStations_(ev) };
+  } catch (e) {
+    return { ok: false, error: String(e.message || e).slice(0, 200) };
+  }
+}
+
+/**
  * Giao diện: bắn mã đơn -> các station đã đóng đơn vào TO (mỗi TO tìm được trong bản ghi đơn -> station = người gửi TO).
  * Người dùng chọn station rồi gọi uiFmsFetch.
  */
@@ -385,10 +414,13 @@ function uiFmsStations(orderCode) {
   var code = String(orderCode || '').trim().toUpperCase();
   if (!code) throw new Error('Thiếu mã đơn');
   var cookie = fmsCookie_();
+  var tr = fmsTrackingStations_(code, cookie);
+  if (tr.ok) return { order: code, stations: tr.stations, allStations: tr.allStations, currentStation: '', source: 'tracking_info', errors: [] };
   var rec = fmsOrderRecord_(code, cookie);
   var infos = fmsToInfos_(fmsTosInRecord_(rec), code, cookie);
   var cur = String(rec.current_station_name || '');
   return { order: code, stations: infos.filter(function (x) { return x.station; }), allStations: cur ? [cur] : [], currentStation: cur,
+    source: 'admin (tracking_info lỗi: ' + tr.error + ')',
     errors: infos.filter(function (x) { return x.error; }).map(function (x) { return x.to + ': ' + x.error; }),
     recordFields: Object.keys(rec).filter(function (k) { return /to_|station|_to$/i.test(k); }) };
 }
@@ -399,6 +431,19 @@ function uiFmsFetch(orderCode, station) {
   if (!code) throw new Error('Thiếu mã đơn');
   var cookie = fmsCookie_();
   var st = String(station || '').trim().toLowerCase();
+  var tr = fmsTrackingStations_(code, cookie);
+  var hit = tr.ok ? tr.stations.filter(function (x) { return x.station.toLowerCase() === st; })[0] : null;
+  if (hit) {
+    var l = fmsToOrders_(hit.to, cookie);
+    var rs = l.items.map(function (x) { return [x.order, x.time || '', hit.to]; });
+    var mn = rs.filter(function (r) { return r[0].toUpperCase() === code; })[0];
+    if (!mn) rs.push([code, hit.scanTime || '', hit.to]);
+    return { ok: true, order: code, to: hit.to, station: hit.station, scanTime: mn && mn[1] ? mn[1] : hit.scanTime, lastMessage: hit.lastMessage || '',
+      header: ['Mã đơn', 'Thời gian quét', 'Mã bao'], rows: rs, total: rs.length,
+      missingTime: rs.filter(function (r) { return !r[1]; }).length, source: 'danh sách TO', listFields: l.fields };
+  }
+  if (tr.ok) return { ok: false, order: code, message: 'Không thấy TO của đơn tại station "' + station + '". Station có TO: ' +
+    (tr.stations.map(function (x) { return x.station + ' (' + x.to + ')'; }).join(', ') || 'không có') };
   var infos = fmsToInfos_(fmsTosInRecord_(fmsOrderRecord_(code, cookie)), code, cookie).filter(function (x) { return x.station; });
   var me = infos.filter(function (x) { return !st || x.station.toLowerCase() === st; }).pop();
   if (!me) return { ok: false, order: code, message: 'Không thấy TO của đơn tại station "' + station + '". Station tìm được: ' +
@@ -689,7 +734,7 @@ function fmsDiagnose(orderCode, toNumber) {
     Logger.log(line);
     return line;
   });
-  Logger.log('Cookie gồm các khóa: ' + cookie.split(';').map(function (x) { return x.split('=')[0].trim(); }).join(', '));
+  Logger.log('Cookie gồm các khóa: ' + (cookie.mini || cookie.full).split(';').map(function (x) { return x.split('=')[0].trim(); }).join(', '));
   return out;
 }
 
