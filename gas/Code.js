@@ -632,6 +632,33 @@ function fromRow_(vals) {
  *  2. tracking_info của một đơn
  *  3. danh sách đơn trong TO
  */
+/**
+ * Dò API thay cho tracking_info (bị FMS chặn 403 từ GAS): tìm API nào trả TO / hành trình theo mã đơn.
+ * Chạy trong trình soạn thảo, gửi Execution log cho Claude (không in cookie).
+ */
+function fmsProbe(orderCode) {
+  var cookie = fmsCookie_();
+  var c = encodeURIComponent(orderCode || 'SPXVN06627964263B');
+  var paths = [
+    '/api/admin/order/soc/tracking/list?shipment_id=' + c + '&count=5&page_no=1',
+    '/api/admin/order/soc/tracking/list?shipment_ids=' + c + '&count=5&page_no=1',
+    '/api/admin/order/soc/tracking/list?keyword=' + c + '&count=5&page_no=1',
+    '/api/in-station/general_to/outbound/order/search?shipment_id=' + c + '&pageno=1&count=10',
+    '/api/in-station/general_to/outbound/search?shipment_id=' + c + '&pageno=1&count=10',
+    '/api/in-station/general_to/outbound/list?shipment_id=' + c + '&pageno=1&count=10',
+    '/api/fleet_order/order/detail?shipment_id=' + c,
+    '/api/admin/order/soc/tracking/detail?shipment_id=' + c,
+    '/api/admin/order/detail/tracking_info?shipment_id=' + c,
+  ];
+  var res = UrlFetchApp.fetchAll(paths.map(function (p) { return fmsRequest_(p, cookie); }));
+  return paths.map(function (p, i) {
+    var line = p.split('?')[0] + '?' + p.split('?')[1].split('&')[0].split('=')[0] + ' -> HTTP ' + res[i].getResponseCode() +
+      ' | ' + String(res[i].getContentText() || '').replace(/\s+/g, ' ').slice(0, 700);
+    Logger.log(line);
+    return line;
+  });
+}
+
 function fmsDiagnose(orderCode, toNumber) {
   var cookie = fmsCookie_();
   var code = orderCode || 'SPXVN06309459535B', to = toNumber || 'TO20261104FW96R';
