@@ -11,4 +11,5 @@ export * as rhythm from './core/rhythm.mjs';
 export * as bagfinder from './bagfinder.mjs';
 export * as trainset from './core/trainset.mjs';
 export * as bookmarklet from './fms-bookmarklet.js';
+export * as ordercard from './ordercard.mjs';
 export const version = '0.1.0';
