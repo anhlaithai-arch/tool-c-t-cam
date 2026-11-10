@@ -64,3 +64,23 @@ Muốn vượt mức này cần: (a) dữ liệu thời gian quét mã từng đ
 - [OC-SORT (MIT, kèm ByteTrack)](https://github.com/noahcao/OC_SORT)
 - [MediaPipe Hand Landmarker cho Web](https://developers.google.com/edge/mediapipe/solutions/vision/hand_landmarker/web_js)
 - [100DOH – Understanding Human Hands in Contact](https://arxiv.org/abs/2006.06669v1)
+
+## Huấn luyện bộ phân loại "kiện đi vào bao" (2026-11-10)
+
+Mục tiêu: chấm lại từng lượt ghép (đúng lúc bỏ kiện hay không) để đếm bỏ vào chính xác hơn. Chưa có dữ liệu thật; đường chạy đã thử trên dữ liệu giả.
+
+1. Duyệt trên trang Đếm (✓/✗), bấm **"Lưu mẫu lên webapp"** → Sheet `MauHuanLuyen` + ảnh trên Drive.
+2. Trang Đếm, **"Tải toàn bộ mẫu trên webapp"** (`uiExportTrainingSamples`) → `mau_huan_luyen_tat_ca_<ngày>.json`, chép vào `data/train/`.
+3. Gom thành bộ ảnh, chia train/val theo phiếu TO:
+   ```bash
+   .venv\Scripts\python -m app.tools.build_dataset data\train\*.json --out data\dataset
+   ```
+4. Huấn luyện (môi trường riêng `.venv-ml`, cài theo `requirements-ml.txt`, chạy CPU):
+   ```bash
+   .venv-ml\Scripts\python -m app.tools.train_drop data\dataset --out data\models\drop
+   ```
+   MobileNetV3-small (ImageNet, đóng băng) rút đặc trưng 3 khung (−0,4/0/+0,4 s) → ghép cả hiệu giữa các khung → một lớp tuyến tính.
+   Xuất `drop.onnx` (3,7 MB, ~1 ms/lượt trên CPU; đầu vào `frames` [N,3,3,128,128] RGB 0..1, đầu ra `prob`) và `metrics.json` (val theo từng TO).
+5. Chưa làm: nạp `drop.onnx` vào trình duyệt (ONNX Runtime Web) để chấm lại lượt khi ghép (`alignScans`).
+
+Cần khoảng ≥ 300 lượt từ ≥ 8–10 TO (kiện sáng/đen, ngày/tối, nhiều người bắn) cho lần thử đầu.

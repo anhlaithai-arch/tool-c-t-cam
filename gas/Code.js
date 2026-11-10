@@ -188,6 +188,40 @@ function uiSaveTrainingSample(sample, images) {
   }
 }
 
+/**
+ * Xuất mẫu đã lưu (cả nhóm) để huấn luyện, theo trang: dòng thứ offset..offset+limit-1 của sheet (bỏ 'khong_ro').
+ * Trả {total (số dòng sheet), next (offset trang sau | null), samples: [{...cột sheet, roi: object, frames: [dataURL JPEG]}]}.
+ * Trang Đếm ghép các trang thành file {format: 'dem-kien-train/1', samples} cho app/tools/build_dataset.py.
+ */
+function uiExportTrainingSamples(offset, limit) {
+  var sh = getTrainSheet_();
+  var total = Math.max(0, sh.getLastRow() - 1);
+  offset = Math.max(0, Number(offset) || 0);
+  limit = Math.max(1, Math.min(50, Number(limit) || 30));
+  if (offset >= total) return { total: total, next: null, samples: [] };
+  var cnt = Math.min(limit, total - offset);
+  var rows = sh.getRange(2 + offset, 1, cnt, TRAIN_COLUMNS.length).getValues();
+  var samples = [];
+  rows.forEach(function (r) {
+    var s = {};
+    TRAIN_COLUMNS.forEach(function (c, i) { s[c] = r[i]; });
+    if (!s.id || s.label === 'khong_ro') return;
+    s.id = String(s.id); s.order = String(s.order); s.bag = String(s.bag);
+    s.corrected = s.corrected === true || String(s.corrected).toUpperCase() === 'TRUE';
+    try { s.roi = JSON.parse(s.roi || 'null'); } catch (e) { s.roi = null; }
+    var ids = [];
+    try { ids = JSON.parse(s.files || '[]'); } catch (e) { ids = []; }
+    delete s.files;
+    try {
+      s.frames = ids.map(function (fid) {
+        return 'data:image/jpeg;base64,' + Utilities.base64Encode(DriveApp.getFileById(fid).getBlob().getBytes());
+      });
+    } catch (e) { return; } // ảnh đã bị xóa trên Drive: bỏ mẫu
+    if (s.frames.length) samples.push(s);
+  });
+  return { total: total, next: offset + cnt < total ? offset + cnt : null, samples: samples };
+}
+
 /** Thống kê số mẫu theo nhãn. */
 function uiTrainingStats() {
   var sh = getTrainSheet_();

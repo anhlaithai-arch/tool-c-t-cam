@@ -13,6 +13,7 @@ Mẫu 'khong_ro' bị bỏ. Chia train/val THEO PHIẾU TO (không để cùng m
 from __future__ import annotations
 
 import argparse
+import sys
 import base64
 import csv
 import glob
@@ -24,6 +25,7 @@ USE = {"bo_vao", "khong_kien", "sai"}
 
 
 def main(argv=None) -> int:
+    sys.stdout.reconfigure(encoding="utf-8")  # console Windows mặc định cp1252, không in được tiếng Việt
     ap = argparse.ArgumentParser()
     ap.add_argument("inputs", nargs="+")
     ap.add_argument("--out", default="data/dataset")

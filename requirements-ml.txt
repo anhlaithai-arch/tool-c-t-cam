@@ -1,0 +1,10 @@
+# Môi trường huấn luyện (.venv-ml), tách khỏi .venv cho nhẹ.
+# py -V:3.13 -m venv .venv-ml
+# .venv-ml\Scripts\python -m pip install -r requirements-ml.txt --extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.5
+torchvision>=0.20
+onnx>=1.17
+onnxruntime>=1.20
+pillow>=10
+numpy>=2.0
+pytest>=8.0
