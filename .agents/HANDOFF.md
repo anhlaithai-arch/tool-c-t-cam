@@ -1,16 +1,17 @@
 # HANDOFF
 Khóa: trống
-Cập nhật: 2026-11-10 11:25 bởi Claude
+Cập nhật: 2026-11-10 bởi Claude
 
 ## Đang làm
-- Việc (ưu tiên, người dùng giao 11:10): lấy TO qua Cloudflare Worker — mã đơn → Load station (API 1) → Export TO (API 2) → bảng FMS; đơn quét đầu = bắt đầu đếm, đơn quét cuối = dừng. Sau đó: huấn luyện đếm bỏ vào (đang chờ dữ liệu).
+- Việc: Đếm AI 2 hướng + Xem AI (thiết kế: docs/HUONG_DEM_AI.md). Người dùng chọn RTMO-m (Xenova/RTMO-m int8, onnxruntime-web CDN).
 - File đang sửa: không
-- Đã xong: giao diện Load station/Export TO + nút tải toàn bộ mẫu (Codex, đã review); server Worker `uiFmsStations`/`uiFmsFetch` + test (2375c07); `app/tools/train_drop.py` + `uiExportTrainingSamples` trong `gas/Code.js` (9bf7ce2); webapp deploy @2; máy mới `C:\Users\anh.laithai\projects\TOOL-CAT-CAM` đã clone, `npm install`, build, test JS 39/39, Python `.venv` (3.13) pytest 12/12.
-- Còn lại (việc tồn, theo `docs/TONG_HOP.md`):
-  1. Thu mẫu đã duyệt (✓/✗) từ nhiều TO → `app/tools/build_dataset.py` → huấn luyện bộ phân loại nhỏ (3 khung ±0,4s) → ONNX chạy trong trình duyệt để chấm lại lượt → đo trên TO chưa dùng để huấn luyện.
-  2. Dùng thêm cam A.
-  3. Vùng đếm bám theo bao di động.
-  4. Trừ 1 kiện khi người bắn lấy kiện ra — để SAU khi đếm bỏ vào đã chính xác (người dùng chốt). Chưa rõ FMS ghi nhận việc lấy ra thế nào.
+- Đã xong: phiếu 1 lõi pose/attrib/posemodel + test (4076999); phiếu 2 giao diện Hướng 2 + Xem AI + dải thời gian trên gas/Dem.html (7b51895). npm test 55 đạt.
+- Còn lại:
+  1. Chạy thử thật trên trình duyệt với video kho: model tải được không, thứ tự kênh RGB/BGR (hằng CHANNELS trong browser/posemodel.mjs), tốc độ mỗi lượt.
+  2. attrib.mjs: người đóng chỉ tìm ở khung ĐẦU của cửa sổ 0,8s; nếu khung đầu không thấy thì ra "cần duyệt" – nên tìm ở khung đầu tiên có người trùng packerBox.
+  3. Phiếu 3: Hướng 1 (neo giờ đơn đầu → tìm bao + người đóng tự động).
+  4. Phiếu 4: huấn luyện lớp cuối trên webapp.
+  5. Việc tồn cũ: cam A, vùng đếm bám bao, trừ 1 khi lấy ra.
 
 ## Quyết định đã chốt
 - Video xử lý trong trình duyệt, không upload; GAS chỉ xác thực, lưu Sheet/Drive.
