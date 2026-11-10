@@ -1,6 +1,6 @@
 # HANDOFF
 Khóa: trống
-Cập nhật: 2026-11-10 11:12 bởi Claude
+Cập nhật: 2026-11-10 11:25 bởi Claude
 
 ## Đang làm
 - Việc (ưu tiên, người dùng giao 11:10): lấy TO qua Cloudflare Worker — mã đơn → Load station (API 1) → Export TO (API 2) → bảng FMS; đơn quét đầu = bắt đầu đếm, đơn quét cuối = dừng. Sau đó: huấn luyện đếm bỏ vào (đang chờ dữ liệu).
@@ -19,6 +19,7 @@ Cập nhật: 2026-11-10 11:12 bởi Claude
 - `gas/LogicBundle.html` chỉ sinh bằng `npm run build`.
 
 ## Quyết định đã chốt (thêm)
+- Từ 2026-11-10: **Codex viết mọi code, kể cả nhỏ nhất**; Claude chỉ thiết kế, viết phiếu, review, commit, deploy (ngoại lệ: Codex không chạy được, hoặc chỉ đổi chữ/số). Xem `AGENTS.md` mục 1, 3.
 - Webapp chỉ cho tài khoản tên miền công ty (`appsscript.json` access DOMAIN) — Workspace không cho ANYONE.
 - Deploy mới: `clasp push --force` rồi `clasp update-deployment AKfycbzRq-C0E2nQcYOCkseXwnjojbspMLYaFAA3XHgJT5faw8KVWXT5VdyZzVfWh87CQ6nfPA` để giữ nguyên link.
 - Ưu tiên đếm bỏ vào chính xác trước; lấy ra (−1) huấn luyện sau.

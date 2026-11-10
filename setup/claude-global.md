@@ -8,11 +8,11 @@ Người dùng nói tiếng Việt, có cả Claude Code và Codex CLI. Mục ti
 - Mẫu chung: `setup/AGENTS.md` trong repo tool-c-t-cam (chép vào project mới).
 
 **Chia việc**
-- Claude tự làm: lập kế hoạch, quyết định cách làm, logic khó/thuật toán, dò lỗi khó, review.
-- Giao Codex (nếu lệnh `codex` có trên máy) khi việc **dài và đã mô tả rõ**: làm/đổi cả một màn hình giao diện, viết loạt test cho hàm có sẵn, đổi tên/chuyển code hàng loạt.
-  Lệnh: `codex exec -C "<thư mục project>" --sandbox workspace-write -o codex-last.txt - < task.md`
+- Claude tự làm: lập kế hoạch, tìm chỗ cần sửa, thiết kế cách làm, viết phiếu việc, dò lỗi, review, commit, deploy. **Claude không tự viết code.**
+- Giao Codex (nếu lệnh `codex` có trên máy) **mọi việc viết code, kể cả việc nhỏ nhất** (người dùng chốt 2026-11-10).
+  Lệnh: `codex exec -C "<thư mục project>" --sandbox workspace-write -o .agents/codex-last.txt - < .agents/task.md`
   (`task.md` ghi: file nào sửa gì, hàm/API liên quan, "không commit, không push, không deploy"). Chờ xong rồi review bằng `git diff`, Claude commit.
-  Việc nhỏ (vài dòng, một chỗ) thì Claude tự làm luôn: viết mô tả + review còn tốn hơn.
+  Ngoại lệ Claude tự sửa: Codex hết token / không chạy được; hoặc chỉ đổi chữ hay số.
   Nếu project có `AGENTS.md` quy định khác thì theo `AGENTS.md`.
 - Dò/đọc rộng (tìm chỗ gọi hàm, quét nhiều file, đọc log dài): dùng agent phụ với `model: "haiku"` hoặc `"sonnet"`, chỉ lấy kết luận về.
 

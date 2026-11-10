@@ -9,8 +9,8 @@
 
 | | Claude Code — trưởng nhóm | Codex — thợ chính |
 |---|---|---|
-| Làm | Phân tích yêu cầu, chia việc, logic khó, dò lỗi khó, review, quyết định cuối | Việc dài đã mô tả rõ: giao diện, test, sửa hàng loạt, việc lặp |
-| Không làm | Việc lặp dài mà Codex làm được (để tiết kiệm token Claude) | Tự đổi thiết kế, API, cấu trúc dữ liệu; sửa file ngoài phần được giao |
+| Làm | Phân tích yêu cầu, tìm đúng chỗ cần sửa, thiết kế cách làm, viết phiếu việc, dò lỗi, review diff, commit, deploy, quyết định cuối | **Viết toàn bộ code** theo phiếu (server `.js` lẫn giao diện), lớn hay nhỏ đều làm; viết test |
+| Không làm | Tự viết code (trừ ngoại lệ ở mục 3.3) | Tự đổi thiết kế, API, cấu trúc dữ liệu; sửa file ngoài phần được giao |
 | Khi bất đồng | Claude quyết; ảnh hưởng lớn thì hỏi người dùng | Ghi đề xuất vào câu trả lời, không tự làm |
 
 ## 2. Luật bắt buộc (cả hai)
@@ -28,15 +28,16 @@
 ## 3. Quy trình một việc
 
 1. **Claude phân tích** yêu cầu → chia thành các phiếu việc, mỗi phiếu một nhóm file không chồng nhau.
-2. **Claude làm phần khó** (logic, server, API) trước → commit `[Claude] ...`.
-3. **Claude giao phiếu cho Codex** (chỉ khi phiếu dài; việc vài dòng thì Claude tự làm):
+2. **Claude thiết kế phần khó** (logic, server, API): ghi rõ trong phiếu cách làm, hàm nào, sửa ở đâu, để Codex chỉ việc code.
+3. **Claude giao phiếu cho Codex** — **mọi việc viết code đều giao Codex**, kể cả việc vài dòng.
+   Ngoại lệ Claude tự sửa (commit `[Claude] ...`): Codex hết token / không chạy được; hoặc chỉ đổi chữ hay số (một dòng chữ, 30 → 60 phút).
    - Viết phiếu ra `.agents/task.md` theo mẫu ở mục 5.
    - Chạy: `codex exec -C "<thư mục project>" --sandbox workspace-write -o .agents/codex-last.txt - < .agents/task.md`
    - Sandbox `workspace-write` không ghi được `.git` → Codex **không commit**; Claude commit thay (bước 5).
 4. **Chờ Codex xong** (lệnh kết thúc) rồi mới làm tiếp. Trong lúc chờ, Claude không sửa file nào trong phiếu.
 5. **Claude review** bằng `git diff` (không đọc lại cả file), chạy test:
    - Đạt → commit với tác giả Codex, message `[Codex] ...` + dòng `Reviewed-by: Claude Code`.
-   - Sai nhỏ → Claude sửa, commit riêng `[Claude] fix: ...`.
+   - Sai nhỏ → ghi lỗi vào phiếu, giao Codex sửa lại (chỉ đổi chữ/số thì Claude sửa, commit `[Claude] fix: ...`).
    - Sai lớn → `git checkout -- <file>` bỏ phần sửa, viết lại phiếu rõ hơn, giao lại.
 6. **Cập nhật `.agents/HANDOFF.md`** (mục 4) sau **mỗi** commit.
 7. **Báo người dùng**: đã đổi gì, commit nào, cần người dùng làm gì (push, deploy, thử).
@@ -116,7 +117,7 @@ Không ai sửa. Mọi trạng thái đã nằm trong HANDOFF + git; lần sau b
 
 ## 7. Tiết kiệm token
 
-- Claude: review bằng diff; đọc đúng đoạn cần; dò tìm rộng thì dùng agent phụ model rẻ (haiku/sonnet); việc lặp dài thì giao Codex.
+- Claude: review bằng diff; đọc đúng đoạn cần; dò tìm rộng thì dùng agent phụ model rẻ (haiku/sonnet); viết code thì giao Codex (mục 3.3).
 - Cả hai: không đọc file build/bundle/dữ liệu/`package-lock.json`; không dán lại nội dung file dài vào câu trả lời.
 - Đổi sang việc không liên quan → mở phiên mới; điều đã chốt ghi vào HANDOFF hoặc `docs/`, không dựa vào lịch sử chat.
 
