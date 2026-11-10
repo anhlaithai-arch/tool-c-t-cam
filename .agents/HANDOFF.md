@@ -1,5 +1,5 @@
 # HANDOFF
-Khóa: trống
+Khóa: Codex (phiếu 4 AI tự học)
 Cập nhật: 2026-11-10 bởi Claude
 
 ## Đang làm
