@@ -150,6 +150,10 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
 </div>
 <button id="fms-api" type="button" class="primary" disabled>Lấy danh sách đơn</button>
 </div>
+<div class="row">
+<label for="fms-file">Hoặc chọn file TO (.xlsx tải từ FMS)</label>
+<input id="fms-file" type="file" multiple accept=".xlsx,.csv,.txt,.tsv,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+</div>
 <p class="muted">Bắn mã đơn → Tìm TO → chọn trạm → Lấy danh sách đơn.</p>
 <p id="fms-msg" class="msg"></p>
 <div id="fms-pos" hidden style="margin-top:8px">
@@ -177,8 +181,6 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
 </textarea>
       <div class="row" style="margin-top:6px">
         <button id="fms-load" type="button">Đọc bảng đã dán</button>
-        <label for="fms-file">Chọn file TO</label>
-<input id="fms-file" type="file" multiple accept=".xlsx,.csv,.txt,.tsv,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
         <button id="fms-gas" type="button">Lấy từ webapp theo mã đơn</button>
       </div>
 </details>
@@ -218,6 +220,10 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
 </div>
 <div class="panel">
 <h2>3. Đếm &amp; kết quả</h2>
+<div class="row">
+<p id="ai-model-info" class="msg">AI chưa học – duyệt ✓/✗ vài TO rồi bấm Huấn luyện AI</p>
+<button id="train-ai" type="button">Huấn luyện AI</button>
+</div>
 <div class="row count-actions">
 <button id="scan" type="button" class="primary" disabled>Đếm</button>
 <button id="cancel" type="button" hidden>Hủy</button>
@@ -335,7 +341,7 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
   const A = window.CountingApp;
   const $ = (id) => document.getElementById(id);
   const st = { h: null, file: null, roi: null, scan: null, decisions: {}, counts: {}, abort: null, sync: null, clock: null, target: null, busy: false,
-    zone: null, mouth: null, packerBox: null, ai: {}, showAi: false, pickPeople: [], reviewed: {} };
+    zone: null, mouth: null, packerBox: null, ai: {}, model: null, prob: {}, showAi: false, pickPeople: [], reviewed: {} };
 
   // ---------- tiện ích ----------
   const fmt = (s) => { if (!isFinite(s)) return '—'; const m = Math.floor(s / 60); return String(m).padStart(2, '0') + ':' + (s - m * 60).toFixed(1).padStart(4, '0'); };
@@ -396,7 +402,8 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
     updateSteps();
     $('pick-packer').disabled = st.busy || !st.h || !st.zone;
     $('score-ai').disabled = st.busy || !st.scan || !st.zone || !st.mouth || !st.packerBox;
-    $('apply-ai').disabled = st.busy || !st.scan || !Object.keys(st.ai).length;
+    $('apply-ai').disabled = st.busy || !st.scan || (!st.model && !Object.keys(st.ai).length);
+    $('train-ai').disabled = st.busy || !inGas();
     $('scan').disabled = st.busy || !st.h || !st.roi;
     $('mark').disabled = st.busy || !st.scan;
     $('mark-fms').disabled = st.busy || !st.h || !st.fms || !st.fms.scans.length;
@@ -647,14 +654,21 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
     } catch (e) { msg('scan-msg', signal.aborted ? 'Đã hủy AI; giữ các lượt đã chấm.' : 'Lỗi AI: ' + e.message, 'err'); }
     finally {
       await A.video.seek(video,back).catch(() => {});
+      updateProb();
       $('cancel').hidden = true; $('prog').hidden = true; setBusy(false); renderEvents(); drawOverlay(); drawTimeline();
     }
   });
   $('apply-ai').addEventListener('click', () => {
     if (st.busy || !st.scan) return;
+    updateProb();
     for (const ev of st.scan.events) {
       const res = st.ai[ev.id]?.res;
-      if (st.decisions[ev.id] === undefined && res && res.decision != null) st.decisions[ev.id] = res.decision === 1 ? 'accept' : 'reject';
+      if (st.decisions[ev.id] !== undefined) continue;
+      if (st.model) {
+        const p = st.prob[ev.id];
+        if (p >= st.model.thr) st.decisions[ev.id] = 'accept';
+        else if (p < st.model.thr * 0.5) st.decisions[ev.id] = 'reject';
+      } else if (res && res.decision != null) st.decisions[ev.id] = res.decision === 1 ? 'accept' : 'reject';
     }
     renderEvents(); drawOverlay(); if (st.target) mark(true);
   });
@@ -703,6 +717,7 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
       st.scan = await A.counter.scanRange(video, st.roi, { startS, endS, signal: st.abort.signal,
         onProgress: (d, tot) => { $('prog').value = d / tot; } });
       st.scan.range = { startS, endS };
+      st.fmsMatch = null;
       st.decisions = {}; st.counts = {}; st.thumbs = {};
       renderEvents();
       msg('scan-msg', `Xong sau ${((performance.now() - t0) / 1000).toFixed(0)} giây. Đang tạo ảnh xem nhanh…`);
@@ -729,6 +744,7 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
     add('Số kiện đang tính', n.total); add('Lượt nghi vấn', n.items.length); add('Cần xem lại', review); add('Chưa duyệt', pend);
   }
   function renderEvents() {
+    updateProb();
     renderStats(); drawTimeline(); refreshButtons();
     const ul = $('events'); ul.replaceChildren();
     if (!st.scan) return;
@@ -753,6 +769,8 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
       badge.textContent = it.decision === 'accept' ? 'Đã xác nhận' : it.decision === 'reject' ? 'Đã bỏ' : it.kind === 'occlusion' ? 'Nghi người che' : it.kind === 'weak' ? 'Cần kiểm tra' : 'AI đề xuất';
       head.append(badge);
       body.append(head);
+      if (Number.isFinite(st.prob[it.id])) body.append(Object.assign(document.createElement('div'), {
+        className: 'muted', textContent: `AI học: ${Math.round(st.prob[it.id] * 100)}%` }));
       body.append(Object.assign(document.createElement('div'), { className: 'muted', textContent: `${fmt(it.startS)}–${fmt(it.endS)}${st.sync ? ' · ' + wallStr(it.peakS) : ''} · ${it.reason}` }));
       const fm = st.fmsMatch && st.fmsMatch[it.id];
       if (fm) body.append(Object.assign(document.createElement('div'), { className: fm.doubt ? 'err' : 'okc',
@@ -964,6 +982,8 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
       } catch (e) { results.push({ scans: [], errors: [f.name + ': ' + (e && e.message || e)] }); }
     }
     setFmsResult(A.fms.mergeScans(results), files.length === 1 ? files[0].name : files.length + ' file');
+    if (!$('order').value.trim() && st.fms?.scans.length) $('order').value = st.fms.scans[0].order;
+    showFmsPos(); await autoNext();
   });
   $('fms-gas').addEventListener('click', async () => {
     const order = $('order').value.trim(); if (!order) { msg('fms-msg', 'Bắn mã đơn trước.', 'err'); return; }
@@ -1123,6 +1143,7 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
     st.cardBag = { bag: p.bag, total: p.total, matches, dur, file: st.file, roi: st.roi };
     $('card-bag').disabled = false;
     st.train = null; renderTrain(); renderTrainStats(); trainBtns();
+    updateProb(); renderEvents();
     refreshButtons();
   }
 
@@ -1294,6 +1315,8 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
     const byOrder = Object.fromEntries(st.train.items.map((it) => [it.order, it]));
     for (const s of samples) {
       const it = byOrder[s.order];
+      const ev = it.event && Math.abs(it.event.peakS - s.videoTimeS) <= 0.001 ? it.event : null;
+      if (ev) s.features = A.learn.eventFeatures({ ev, scan: st.scan, ai: st.ai[ev.id], match: st.fmsMatch?.[ev.id] });
       s.frames = it.frames && Math.abs((it.framesAt ?? -1) - s.videoTimeS) <= 0.01 ? it.frames : (await A.counter.sampleFrames(video, st.roi, s.videoTimeS)).frames;
     }
     if ($('train-neg').checked) {
@@ -1369,6 +1392,47 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
     finally { setBusy(false); trainBtns(); }
   });
 
+  function modelInfo() {
+    if (!st.model) { msg('ai-model-info', 'AI chưa học – duyệt ✓/✗ vài TO rồi bấm Huấn luyện AI'); return; }
+    const m = st.model.metrics, d = new Date(st.model.trainedAt);
+    const pad = (v) => String(v).padStart(2, '0');
+    const at = `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    msg('ai-model-info', `AI đã học: ${m.n} mẫu · đúng ${(m.acc * 100).toFixed(1)}% · F1 ${m.f1.toFixed(2)} · ${at}`, 'okc');
+  }
+  function updateProb() {
+    st.prob = {};
+    if (!st.model || !st.scan) return;
+    try {
+      for (const ev of st.scan.events) st.prob[ev.id] = A.learn.predict(st.model,
+        A.learn.eventFeatures({ ev, scan: st.scan, ai: st.ai[ev.id], match: st.fmsMatch?.[ev.id] }));
+    } catch (e) { st.prob = {}; msg('ai-model-info', e.message, 'err'); }
+  }
+  $('train-ai').addEventListener('click', async () => {
+    if (st.busy) return;
+    setBusy(true);
+    try {
+      const samples = []; let offset = 0;
+      do {
+        msg('ai-model-info', `Đang tải mẫu huấn luyện (${samples.length})…`);
+        const page = await rpc('uiTrainingFeatures', offset, 2000);
+        for (const s of page.samples) {
+          const y = A.learn.labelOf(s.label);
+          if (y !== null) samples.push({ x: s.features, y, bag: s.bag });
+        }
+        offset = page.next;
+      } while (offset !== null);
+      msg('ai-model-info', `Đang huấn luyện AI với ${samples.length} mẫu…`);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const model = A.learn.train(samples);
+      await rpc('uiSaveModel', model);
+      st.model = model; modelInfo(); updateProb(); renderEvents();
+      msg('train-msg', `Đã huấn luyện AI: ${model.metrics.n} mẫu, kiểm tra ${model.metrics.nVal} mẫu · đúng ${(model.metrics.acc * 100).toFixed(1)}% · F1 ${model.metrics.f1.toFixed(2)}.`, 'okc');
+    } catch (e) {
+      const error = 'Không huấn luyện được: ' + (e.message || e);
+      msg('ai-model-info', error, 'err'); msg('train-msg', error, 'err');
+    } finally { setBusy(false); }
+  });
+
   // ---------- lưu ----------
   $('save').addEventListener('click', async () => {
     if (!st.target || !st.ev) return;
@@ -1441,6 +1505,9 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
     if (q.get('fms')) fetch(q.get('fms')).then((r) => r.text()).then((t) => { $('fms-text').value = t; setFms(A.fms.parseTable(t), q.get('fms').split('/').pop()); });
   }
   refreshButtons();
+  if (inGas()) rpc('uiGetModel').then((model) => {
+    st.model = model; modelInfo(); updateProb(); renderEvents();
+  }).catch(() => { st.model = null; modelInfo(); });
   window.__dem = { st, setRoi, setFms, markFms, findBag, collectSamples }; // để kiểm thử tự động
 })();
 </script>

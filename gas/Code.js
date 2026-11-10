@@ -123,7 +123,7 @@ function uiUploadEvidence(data) {
 // ---------------------------------------------------------------------------
 var TRAIN_SHEET_NAME = 'MauHuanLuyen';
 var TRAIN_COLUMNS = ['id', 'label', 'corrected', 'bag', 'order', 'index', 'camera', 'videoFile', 'videoTimeS',
-  'scanVideoS', 'roi', 'signal', 'offset', 'files', 'reviewer', 'updatedAt'];
+  'scanVideoS', 'roi', 'signal', 'offset', 'files', 'reviewer', 'updatedAt', 'features'];
 var TRAIN_LABELS = ['bo_vao', 'sai', 'khong_ro', 'khong_kien'];
 
 function getTrainSheet_() {
@@ -136,6 +136,10 @@ function getTrainSheet_() {
     sh.getRange('A:A').setNumberFormat('@');
     sh.getRange('E:E').setNumberFormat('@');
   }
+  var headers = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), TRAIN_COLUMNS.length)).getValues()[0];
+  TRAIN_COLUMNS.forEach(function (c, i) {
+    if (headers.indexOf(c) < 0) sh.getRange(1, i + 1).setValue(c).setFontWeight('bold');
+  });
   return sh;
 }
 
@@ -175,6 +179,7 @@ function uiSaveTrainingSample(sample, images) {
     var rec = {};
     TRAIN_COLUMNS.forEach(function (c) { rec[c] = sample[c]; });
     rec.roi = JSON.stringify(sample.roi || null);
+    rec.features = Array.isArray(sample.features) && sample.features.length && sample.features.every(function (v) { return typeof v === 'number' && isFinite(v); }) ? JSON.stringify(sample.features) : '';
     rec.files = JSON.stringify(ids);
     rec.reviewer = email;
     rec.updatedAt = new Date().toISOString();
@@ -230,6 +235,53 @@ function uiTrainingStats() {
   if (n < 2) return out;
   sh.getRange(2, 2, n - 1, 1).getValues().forEach(function (r) { out.total++; out[r[0]] = (out[r[0]] || 0) + 1; });
   return out;
+}
+
+/** Chỉ đọc các số đặc trưng, không truy cập ảnh Drive. Offset tính theo dòng sheet. */
+function uiTrainingFeatures(offset, limit) {
+  var sh = getTrainSheet_(), total = Math.max(0, sh.getLastRow() - 1);
+  offset = Math.max(0, Math.floor(Number(offset) || 0));
+  limit = Math.max(1, Math.min(2000, Math.floor(Number(limit) || 2000)));
+  if (offset >= total) return { total: total, next: null, samples: [] };
+  var cnt = Math.min(limit, total - offset), samples = [];
+  sh.getRange(2 + offset, 1, cnt, TRAIN_COLUMNS.length).getValues().forEach(function (r) {
+    var s = {};
+    TRAIN_COLUMNS.forEach(function (c, i) { s[c] = r[i]; });
+    if (!s.id || TRAIN_LABELS.indexOf(s.label) < 0 || s.label === 'khong_ro') return;
+    var x;
+    try { x = JSON.parse(s.features || 'null'); } catch (e) { return; }
+    if (!Array.isArray(x) || x.length !== 15 || !x.every(function (v) { return typeof v === 'number' && isFinite(v); })) return;
+    samples.push({ id: String(s.id), label: s.label, bag: String(s.bag), features: x });
+  });
+  return { total: total, next: offset + cnt < total ? offset + cnt : null, samples: samples };
+}
+
+function uiSaveModel(model) {
+  if (!model || !Array.isArray(model.features) || !model.features.length ||
+      !model.features.every(function (v) { return typeof v === 'string'; }) ||
+      !Array.isArray(model.w) || model.w.length !== model.features.length ||
+      !model.w.every(function (v) { return typeof v === 'number' && isFinite(v); }) ||
+      !Array.isArray(model.mu) || !Array.isArray(model.sd) ||
+      model.mu.length !== model.w.length || model.sd.length !== model.w.length ||
+      !model.mu.every(function (v) { return typeof v === 'number' && isFinite(v); }) ||
+      !model.sd.every(function (v) { return typeof v === 'number' && isFinite(v) && v > 0; }) ||
+      typeof model.b !== 'number' || !isFinite(model.b) ||
+      typeof model.thr !== 'number' || !isFinite(model.thr) || model.thr < 0 || model.thr > 1 || !model.metrics) throw new Error('Mô hình không hợp lệ');
+  var json = JSON.stringify(model), lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    var ss = SpreadsheetApp.openById(prop_('RESULT_SHEET_ID'));
+    var sh = ss.getSheetByName('MoHinh') || ss.insertSheet('MoHinh');
+    sh.appendRow([new Date().toISOString(), Session.getActiveUser().getEmail(), model.metrics.n,
+      model.metrics.acc, model.metrics.f1, model.thr, json]);
+    PropertiesService.getScriptProperties().setProperty('DROP_MODEL', json);
+    return { ok: true, version: sh.getLastRow() };
+  } finally { lock.releaseLock(); }
+}
+
+function uiGetModel() {
+  var json = prop_('DROP_MODEL');
+  return json ? JSON.parse(json) : null;
 }
 
 // ---------------------------------------------------------------------------

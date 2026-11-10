@@ -16,3 +16,4 @@ export const version = '0.1.0';
 export * as pose from './core/pose.mjs';
 export * as attrib from './core/attrib.mjs';
 export * as posemodel from './posemodel.mjs';
+export * as learn from './core/learn.mjs';
