@@ -3,6 +3,10 @@
 
 Người dùng nói tiếng Việt, có cả Claude Code và Codex CLI. Mục tiêu: chất lượng ở phần khó, rẻ ở phần dễ.
 
+**File quy trình**
+- Project có `AGENTS.md` mà chưa có `CLAUDE.md`: đọc `AGENTS.md` và làm theo; tạo `CLAUDE.md` chỉ một dòng `@AGENTS.md`. Nếu `AGENTS.md` có mục "Riêng project này" còn trống thì điền sau khi xem project.
+- Mẫu chung: `setup/AGENTS.md` trong repo tool-c-t-cam (chép vào project mới).
+
 **Chia việc**
 - Claude tự làm: lập kế hoạch, quyết định cách làm, logic khó/thuật toán, dò lỗi khó, review.
 - Giao Codex (nếu lệnh `codex` có trên máy) khi việc **dài và đã mô tả rõ**: làm/đổi cả một màn hình giao diện, viết loạt test cho hàm có sẵn, đổi tên/chuyển code hàng loạt.

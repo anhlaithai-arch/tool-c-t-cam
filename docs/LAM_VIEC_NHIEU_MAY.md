@@ -50,3 +50,9 @@ Get-Content setup\claude-global.md | Add-Content -Encoding utf8 "$HOME\.claude\C
 ```
 
 Sửa luật thì sửa `setup/claude-global.md` rồi chép lại (xóa đoạn cũ giữa hai dòng `TIET_KIEM_TOKEN` trước).
+
+## Dùng Claude + Codex cho project khác
+
+Chép `setup/AGENTS.md` vào thư mục gốc project đó (giữ tên `AGENTS.md`). Lần đầu mở Claude trong project,
+Claude tự tạo `CLAUDE.md` (`@AGENTS.md`) và điền mục "Riêng project này". File có sẵn cách xử lý khi Claude hoặc Codex hết token
+(sổ bàn giao `.agents/HANDOFF.md`).
