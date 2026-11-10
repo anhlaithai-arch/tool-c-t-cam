@@ -250,7 +250,7 @@ function uiTrainingFeatures(offset, limit) {
     if (!s.id || TRAIN_LABELS.indexOf(s.label) < 0 || s.label === 'khong_ro') return;
     var x;
     try { x = JSON.parse(s.features || 'null'); } catch (e) { return; }
-    if (!Array.isArray(x) || x.length !== 15 || !x.every(function (v) { return typeof v === 'number' && isFinite(v); })) return;
+    if (!Array.isArray(x) || x.length !== 19 || !x.every(function (v) { return typeof v === 'number' && isFinite(v); })) return;
     samples.push({ id: String(s.id), label: s.label, bag: String(s.bag), features: x });
   });
   return { total: total, next: offset + cnt < total ? offset + cnt : null, samples: samples };
