@@ -5,24 +5,24 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Đếm kiện vào bao</title>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  :root { --ink:#182b40; --muted:#526477; --line:#ccd6e0; --blue:#174fb4; --paper:#fff; --bg:#f2f5f8;
-          --ok:#176236; --okbg:#e3f5e9; --warn:#894000; --warnbg:#fff0dc; --bad:#a32424; --badbg:#fde8e8; --hl:#ffd400; }
+  :root { --primary:#2563EB; --primary-dark:#1E40AF; --primary-soft:#DBEAFE; --bg:#EFF6FF; --card:#FFFFFF; --border:#BFDBFE; --fg:#0F172A; --muted:#475569; --ok:#15803D; --okbg:#DCFCE7; --warn:#C2410C; --warnbg:#FFEDD5; --bad:#DC2626; --badbg:#FEE2E2; --hl:#FACC15; --line:var(--border); }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
-  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; background: var(--paper); border-bottom: 1px solid var(--line); }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 "Be Vietnam Pro", system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; background: var(--card); border-bottom: 1px solid var(--line); }
   header h1 { font-size: 20px; margin: 0; }
-  header a { color: var(--blue); }
+  header a { color: var(--primary); }
   main { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(340px, 1fr); gap: 16px; padding: 16px 20px; max-width: 1500px; margin: auto; }
-  @media (max-width: 1000px) { main { grid-template-columns: minmax(0, 1fr); padding: 12px; } }
-  .panel { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 14px; min-width: 0; }
+  @media (max-width: 999px) { main { grid-template-columns: minmax(0, 1fr); padding: 12px; } }
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 14px; min-width: 0; }
   .panel h2 { font-size: 16px; margin: 0 0 10px; }
   label { display: block; font-weight: 600; font-size: 13px; margin: 8px 0 4px; }
   input[type=text], input[type=password], input[type=number], select { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid #8395a8; border-radius: 7px; font: inherit; }
-  button { min-height: 38px; border: 1px solid var(--line); border-radius: 7px; padding: 7px 12px; background: var(--paper); color: var(--ink); font: inherit; cursor: pointer; }
+  button { min-height: 38px; border: 1px solid var(--line); border-radius: 7px; padding: 7px 12px; background: var(--card); color: var(--fg); font: inherit; cursor: pointer; }
   button:hover { background: #eaf0f8; } button:disabled { opacity: .55; cursor: not-allowed; }
-  .primary { background: var(--blue); border-color: var(--blue); color: #fff; } .primary:hover { background: #113d8c; }
+  .primary { background: var(--primary); border-color: var(--primary); color: #fff; } .primary:hover { background: #113d8c; }
   .row { display: flex; gap: 8px; align-items: end; flex-wrap: wrap; } .row > * { flex: 1 1 120px; min-width: 0; }
   .row > button { flex: 0 0 auto; }
   .muted { color: var(--muted); font-size: 13px; }
@@ -35,7 +35,7 @@
   .vbar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
   .vbar .time { font-variant-numeric: tabular-nums; font-weight: 600; margin-left: auto; }
   progress { width: 100%; height: 10px; }
-  .result { border: 2px solid var(--blue); background: #eff5ff; border-radius: 10px; padding: 12px; }
+  .result { border: 2px solid var(--primary); background: #eff5ff; border-radius: 10px; padding: 12px; }
   .result .big { font-size: 22px; font-weight: 750; }
   .result img { width: 100%; border-radius: 6px; margin-top: 8px; }
   .stats { display: flex; gap: 14px; flex-wrap: wrap; font-size: 14px; margin-bottom: 8px; }
@@ -52,83 +52,105 @@
   .ev .acts { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 4px; } .ev .acts button { min-height: 30px; padding: 3px 8px; font-size: 13px; }
   .ev .cnt { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
   details summary { cursor: pointer; font-weight: 600; }
+
+header { background:var(--primary-dark); color:white; } header a { color:white; min-height:44px; display:inline-flex; align-items:center; }
+main { grid-template-columns:minmax(0,1.2fr) minmax(0,1fr); align-items:start; } main > section { min-width:0; } .video-column { position:sticky; top:12px; }
+.panel { border-radius:12px; padding:16px; box-shadow:0 1px 2px rgb(15 23 42 / .06); } .panel h2 { font-size:18px; } h3 { font-size:15px; margin:0 0 8px; }
+button { min-height:44px !important; max-width:100%; border-radius:8px; color:var(--primary-dark); overflow-wrap:anywhere; transition:background-color 180ms,color 180ms,border-color 180ms; } button:hover { background:var(--primary-soft); } button:disabled { opacity:.5; } .primary { color:white; } .primary:hover { background:var(--primary-dark); }
+input,select,textarea { max-width:100%; color:var(--fg); font:inherit; } input[type=text],input[type=password],input[type=number],input[type=file],select,textarea { width:100%; min-height:44px; border:1px solid #93C5FD; border-radius:8px; padding:8px 10px; background:white; } input[type=range] { min-height:44px; width:100%; } input { accent-color:var(--primary); } input:focus,select:focus,textarea:focus { border-color:var(--primary); }
+:focus-visible { outline:2px solid var(--primary); outline-offset:3px; box-shadow:0 0 0 3px var(--primary-soft); } #order { font-size:18px; min-height:50px; }
+.row { margin-top:8px; } .row > button { flex:1 1 auto; } .steps { display:flex; gap:16px; list-style:none; max-width:1500px; padding:16px 20px 0; margin:0 auto; } .steps li { display:flex; align-items:center; gap:8px; flex:1; font-weight:600; color:var(--primary-dark); } .steps .number { display:grid; place-items:center; width:32px; height:32px; flex:0 0 32px; border-radius:50%; background:var(--primary); color:white; } .steps .done { color:var(--ok); } .steps .done .number { background:var(--ok); }
+details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border); } details summary { min-height:44px; padding:10px 0; color:var(--primary-dark); } details.panel { margin-top:0; padding-top:6px; } .advanced-group { margin-top:12px; padding-top:12px; border-top:1px solid var(--border); }
+.result { background:var(--bg); margin-top:12px; } .stats { margin-top:12px; } .ev.target { border-color:var(--primary); outline:2px solid var(--primary); outline-offset:-2px; } .b-pend { background:var(--primary-soft); } .time,p,li,code { overflow-wrap:anywhere; } #fms-bm { min-height:44px; background:var(--primary-soft) !important; color:var(--primary-dark) !important; } #fms-pos { overflow-wrap:anywhere; } #fms-pos table { width:100%; table-layout:fixed; }
+.timeline-key { display:flex; flex-wrap:wrap; gap:6px 12px; font-size:12px; color:var(--muted); } .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:4px; } .counted { background:var(--ok); } .ignored { background:var(--muted); } .review { background:var(--warn); } .fms-tick { display:inline-block; height:12px; border-left:3px solid #A855F7; margin-right:4px; }
+@media (max-width:999px) { main { grid-template-columns:minmax(0,1fr); padding:12px; } .video-column { position:static; } .steps { padding:12px 12px 0; gap:8px; } }
+@media (max-width:480px) { header { padding:12px; gap:8px; align-items:start; } header h1 { font-size:19px; } header a { font-size:12px; } .steps li { flex-direction:column; text-align:center; font-size:12px; gap:6px; } .panel { padding:12px; } .ev { grid-template-columns:76px minmax(0,1fr); gap:8px; } .ev img { width:76px; height:64px; } }
+@media (prefers-reduced-motion:reduce) { * { transition:none !important; } }
 </style>
 </head>
-<body data-base="<?= baseUrl ?>">
+<body data-base="<?= baseUrl ?>
 <header>
-  <h1>Đếm kiện vào bao</h1>
-  <nav class="muted"><a id="lnk-lookup" href="#">Tra cứu kết quả</a></nav>
+<h1>Đếm kiện vào bao</h1>
+<nav>
+<a id="lnk-lookup" href="#">Tra cứu kết quả</a>
+</nav>
 </header>
+<ol class="steps" aria-label="Các bước đếm kiện">
+<li id="step-1">
+<span class="number">1</span>
+<span>Mã đơn &amp; TO</span>
+</li>
+<li id="step-2">
+<span class="number">2</span>
+<span>Video &amp; vùng đếm</span>
+</li>
+<li id="step-3">
+<span class="number">3</span>
+<span>Đếm &amp; kết quả</span>
+</li>
+</ol>
 <main>
-  <section>
-    <div class="panel">
-      <h2>1. Chọn video camera</h2>
-      <input id="file" type="file" accept="video/*">
-      <p class="muted">Video chỉ mở trên máy này, không tải lên đâu cả.</p>
-      <p id="video-msg" class="msg"></p>
-    </div>
-    <div class="panel" id="player-panel" hidden>
-      <div id="stage" class="stage"><video id="video" playsinline muted></video><canvas id="overlay"></canvas></div>
-      <div class="vbar">
-        <button id="play" type="button">▶ Phát</button>
-        <button id="back1" type="button" title="Lùi 1 khung">◀ 1 khung</button>
-        <button id="fwd1" type="button" title="Tiến 1 khung">1 khung ▶</button>
-        <button id="back5" type="button">−5s</button><button id="fwd5" type="button">+5s</button>
-        <span class="time" id="tnow">00:00.0</span>
-      </div>
-      <input id="seekbar" type="range" min="0" max="1000" value="0" style="width:100%">
-      <canvas id="ai-timeline" height="48" style="width:100%;height:48px;background:#182b40;cursor:pointer" hidden aria-label="Dải thời gian AI"></canvas>
-      <div class="row" style="margin-top:8px">
-        <button id="draw" type="button" class="primary">Khoanh miệng bao</button>
-        <button id="draw-zone" type="button">Khoanh ô xét (người đóng + bao)</button>
-        <button id="draw-mouth" type="button">Khoanh miệng bao (đa giác)</button>
-        <button id="finish-mouth" type="button" hidden>Xong đa giác</button>
-        <button id="pick-packer" type="button" disabled>Chọn người đóng</button>
-        <button id="score-ai" type="button" disabled>AI chấm lượt</button>
-        <button id="apply-ai" type="button" disabled>Áp dụng đề xuất AI</button>
-        <label><input id="show-ai" type="checkbox"> Xem AI</label>
-        <span class="muted" id="roi-info">Chưa khoanh vùng. Kéo chuột quanh miệng bao.</span>
-      </div>
-    </div>
-  </section>
-
-  <section>
-    <div class="panel">
-      <h2>2. Thông tin đơn</h2>
-      <div class="row">
-        <div><label for="order">Mã đơn</label><input id="order" type="text" autocomplete="off" placeholder="Bắn mã đơn"></div>
-        <div><label for="camera">Camera</label><input id="camera" type="text" placeholder="vd Camera 01"></div>
-      </div>
-      <div class="row">
-        <div><label for="bag">Mã bao (nếu có)</label><input id="bag" type="text"></div>
-        <div><label for="from">Đếm từ (mm:ss)</label><input id="from" type="text" placeholder="đầu video"></div>
-        <div><label for="to">Đến (mm:ss)</label><input id="to" type="text" placeholder="cuối video"></div>
-      </div>
-      <div class="row" style="margin-top:6px">
-        <button id="set-from" type="button">Từ = hiện tại</button>
-        <button id="set-to" type="button">Đến = hiện tại</button>
-      </div>
-      <div class="row" style="margin-top:10px">
-        <button id="scan" type="button" class="primary" disabled>Đếm</button>
-        <button id="cancel" type="button" hidden>Hủy</button>
-      </div>
-      <progress id="prog" value="0" max="1" hidden></progress>
-      <p id="scan-msg" class="msg"></p>
-    </div>
-
-    <div class="panel">
-      <h2>Dữ liệu quét FMS</h2>
-      <div style="border:1px solid var(--line);border-radius:8px;padding:10px;background:#f7faff">
-        <b>Lấy TO tự động</b>
-        <div class="row">
-          <button id="fms-load-stations" type="button">Load station</button>
-          <div><label for="fms-station">Station</label><select id="fms-station" disabled><option value="">— Bắn mã đơn để tải station —</option></select></div>
-          <button id="fms-api" type="button" class="primary" disabled>Export TO</button>
-        </div>
-        <p class="muted" style="margin:6px 0 0">Nhập mã đơn ở ô Mã đơn, bấm Load station, chọn station, bấm Export TO.</p>
-      </div>
-      <details style="margin-top:8px">
-        <summary class="muted">Cách dự phòng: nút Lấy TO trên trang FMS</summary>
+<section class="video-column" aria-label="Video camera">
+<div class="panel" id="player-panel" hidden>
+<h2>Video camera</h2>
+<div id="stage" class="stage">
+<video id="video" playsinline muted>
+</video>
+<canvas id="overlay">
+</canvas>
+</div>
+<div class="vbar">
+<button id="play" type="button">▶ Phát</button>
+<button id="back1" type="button" title="Lùi 1 khung">◀ 1 khung</button>
+<button id="fwd1" type="button" title="Tiến 1 khung">1 khung ▶</button>
+<button id="back5" type="button">−5s</button>
+<button id="fwd5" type="button">+5s</button>
+<span class="time" id="tnow">00:00.0</span>
+</div>
+<label for="seekbar" class="muted">Vị trí trong video</label>
+<input id="seekbar" type="range" min="0" max="1000" value="0" style="width:100%">
+<canvas id="ai-timeline" height="48" style="width:100%;height:48px;background:#182b40;cursor:pointer" hidden aria-label="Dải thời gian AI">
+</canvas>
+<p class="timeline-key">
+<span>
+<i class="dot counted">
+</i>AI tính</span>
+<span>
+<i class="dot ignored">
+</i>Không tính</span>
+<span>
+<i class="dot review">
+</i>Cần duyệt</span>
+<span>
+<i class="fms-tick">
+</i>Giờ quét FMS</span>
+</p>
+</div>
+</section>
+<section aria-label="Các bước thao tác">
+<div class="panel">
+<h2>1. Mã đơn &amp; TO</h2>
+<div>
+<label for="order">Bắn mã đơn</label>
+<input id="order" type="text" autocomplete="off" placeholder="Bắn mã đơn">
+</div>
+<div class="row">
+<button id="fms-load-stations" type="button">Tìm TO</button>
+<div>
+<label for="fms-station">TO tại trạm</label>
+<select id="fms-station" disabled>
+<option value="">— Bắn mã đơn để tải station —</option>
+</select>
+</div>
+<button id="fms-api" type="button" class="primary" disabled>Lấy danh sách đơn</button>
+</div>
+<p class="muted">Bắn mã đơn → Tìm TO → chọn trạm → Lấy danh sách đơn.</p>
+<p id="fms-msg" class="msg">
+</p>
+<div id="fms-pos" hidden style="margin-top:8px">
+</div>
+<details>
+<summary>Cách khác để lấy TO</summary>      
       <div style="border:1px solid var(--line);border-radius:8px;padding:10px;background:#f7faff">
         <b>Cách nhanh: nút "Lấy TO" trên thanh dấu trang Chrome</b>
         <ol class="muted" style="margin:6px 0 6px 18px;padding:0">
@@ -142,38 +164,77 @@
         </div>
         <p class="muted" style="margin:6px 0 0">Nút chạy trong chính trình duyệt đang đăng nhập FMS (FMS chặn mọi yêu cầu từ máy chủ Google), không gửi cookie đi đâu.</p>
       </div>
-      </details>
+      
       <p class="muted">Dán bảng xuất từ FMS (Excel: chọn vùng có hàng tiêu đề → Ctrl+C → dán vào đây), chọn file CSV,
         hoặc lấy từ sheet "FMS" trên webapp. Cần 3 cột: mã đơn, giờ quét, mã bao.</p>
-      <textarea id="fms-text" rows="4" style="width:100%;font:13px monospace" placeholder="Mã vận đơn	Thời gian quét	Mã bao"></textarea>
+      <label for="fms-text">Bảng đơn FMS</label>
+<textarea id="fms-text" rows="4" style="width:100%;font:13px monospace" placeholder="Mã vận đơn	Thời gian quét	Mã bao">
+</textarea>
       <div class="row" style="margin-top:6px">
         <button id="fms-load" type="button">Đọc bảng đã dán</button>
-        <input id="fms-file" type="file" multiple accept=".xlsx,.csv,.txt,.tsv,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+        <label for="fms-file">Chọn file TO</label>
+<input id="fms-file" type="file" multiple accept=".xlsx,.csv,.txt,.tsv,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
         <button id="fms-gas" type="button">Lấy từ webapp theo mã đơn</button>
       </div>
-      <p id="fms-msg" class="msg"></p>
-      <div id="fms-pos" hidden style="margin-top:8px"></div>
-    </div>
-
-    <div class="panel">
-      <h2>3. Đánh dấu đơn</h2>
-      <div class="row">
-        <button id="find-bag" type="button" disabled>AI tự tìm bao</button>
-        <button id="mark-fms" type="button" class="primary" disabled>Đánh dấu theo FMS</button>
-        <div><label for="fms-offset">Lệch giờ camera so với FMS (giây, để trống = tự tính)</label><input id="fms-offset" type="text" placeholder="tự tính"></div>
-      </div>
-      <p class="muted" style="margin-top:4px">Không có FMS: nhập vị trí thủ công bên dưới.</p>
-      <label for="target">Vị trí đơn: thời điểm trong video (mm:ss), giờ camera (HH:MM:SS) hoặc thứ tự (#20)</label>
-      <div class="row">
-        <input id="target" type="text" placeholder="vd 12:31.5  hoặc  16:59:40  hoặc  #20">
-        <button id="target-now" type="button">Lấy thời điểm hiện tại</button>
-        <button id="mark" type="button" class="primary" disabled>Đánh dấu</button>
-      </div>
-      <label><input id="closed" type="checkbox"> Đoạn đã đếm chứa trọn cả phiên đóng bao (chốt tổng)</label>
-      <p id="mark-msg" class="msg"></p>
-      <div id="result" class="result" hidden>
-        <div class="big" id="res-big"></div>
-        <div id="res-meta" class="muted"></div>
+</details>
+</div>
+<div class="panel">
+<h2>2. Video &amp; vùng đếm</h2>
+<div>
+<label for="file">Chọn video camera</label>
+<input id="file" type="file" accept="video/*">
+</div>
+<p class="muted">Video chỉ mở trên máy này, không tải lên đâu cả.</p>
+<p id="video-msg" class="msg">
+</p>
+<div class="row">
+<button id="find-bag" type="button" class="primary" disabled>AI tự tìm bao</button>
+</div>
+<details>
+<summary>Khoanh tay (khi AI tìm chưa đúng)</summary>
+<p class="muted">Khoanh ô xét gồm người đóng + bao → khoanh miệng bao → bấm Chọn người đóng rồi bấm vào người đó.</p>
+<div class="row">
+<button id="draw" type="button" class="primary">Khoanh miệng bao</button>
+<button id="draw-zone" type="button">Khoanh ô xét (người đóng + bao)</button>
+<button id="draw-mouth" type="button">Khoanh miệng bao (đa giác)</button>
+<button id="finish-mouth" type="button" hidden>Xong đa giác</button>
+<button id="pick-packer" type="button" disabled>Chọn người đóng</button>
+</div>
+<span class="muted" id="roi-info">Chưa khoanh vùng. Kéo chuột quanh miệng bao.</span>
+</details>
+<details>
+<summary>Đồng bộ giờ camera</summary>        <p class="muted">Dừng ở một khung, gõ đúng chữ đồng hồ góc trên trái, vd <code>11-04-2026 Wed 16:48:42</code>.</p>
+        <div class="row">
+          <label for="clock-label">Chữ đồng hồ trên khung hiện tại</label>
+<input id="clock-label" type="text" placeholder="chữ đồng hồ trên khung hiện tại">
+          <button id="clock-run" type="button" disabled>Đồng bộ</button>
+        </div>
+        <p id="clock-msg" class="msg">
+</p>
+      </details>
+</div>
+<div class="panel">
+<h2>3. Đếm &amp; kết quả</h2>
+<div class="row">
+<button id="scan" type="button" class="primary" disabled>Đếm</button>
+<button id="cancel" type="button" hidden>Hủy</button>
+<button id="mark-fms" type="button" class="primary" disabled>Đánh dấu theo FMS</button>
+<button id="score-ai" type="button" disabled>AI chấm lượt</button>
+<button id="apply-ai" type="button" disabled>Áp dụng đề xuất AI</button>
+<label>
+<input id="show-ai" type="checkbox"> Xem AI</label>
+</div>
+<progress id="prog" value="0" max="1" hidden>
+</progress>
+<p id="scan-msg" class="msg">
+</p>
+<p id="mark-msg" class="msg">
+</p>
+<div id="result" class="result" hidden>
+        <div class="big" id="res-big">
+</div>
+        <div id="res-meta" class="muted">
+</div>
         <img id="res-img" alt="Ảnh đánh dấu kiện">
         <img id="res-crop" alt="Dải 3 khung quanh lúc bỏ kiện" style="margin-top:6px">
         <div class="row" style="margin-top:8px">
@@ -182,49 +243,90 @@
           <button id="card-bag" type="button" disabled>Cắt ảnh cả bao (ZIP)</button>
         </div>
         <p class="muted">Ảnh đơn hàng: khung hình camera (khung vàng = miệng bao) kèm cột bên cạnh ghi mã đơn, kiện N/T, mã bao, giờ quét FMS, giờ camera. "Cả bao" cần bấm "Đánh dấu theo FMS" trước.</p>
-        <p id="save-msg" class="msg"></p>
+        <p id="save-msg" class="msg">
+</p>
       </div>
-    </div>
-
-    <div class="panel">
-      <h2>5. Duyệt từng đơn &amp; tạo dữ liệu huấn luyện</h2>
-      <p class="muted">Sau khi "Đánh dấu theo FMS": xem dải 3 khung của từng đơn rồi bấm ✓ Đúng / ✗ Sai / ? Không rõ.
+<div class="stats" id="stats">
+<span class="muted">Chưa đếm.</span>
+</div>
+<p class="muted">AI chỉ đề xuất. Lượt "nghi người che" và "cần kiểm tra" mặc định KHÔNG tính – xem lại và bấm ✓ nếu có kiện. Bấm ảnh để xem lại đoạn đó.</p>
+<ul id="events">
+</ul>
+</div>
+<details class="panel">
+<summary>Nâng cao</summary>
+<section class="advanced-group">
+<h3>Khoảng đếm</h3>
+<div class="row">
+<div>
+<label for="from">Đếm từ (mm:ss)</label>
+<input id="from" type="text" placeholder="đầu video">
+</div>
+<div>
+<label for="to">Đến (mm:ss)</label>
+<input id="to" type="text" placeholder="cuối video">
+</div>
+</div>
+<div class="row">
+<button id="set-from" type="button">Từ = hiện tại</button>
+<button id="set-to" type="button">Đến = hiện tại</button>
+</div>
+</section>
+<section class="advanced-group">
+<h3>Thông tin thêm</h3>
+<div class="row">
+<div>
+<label for="camera">Camera</label>
+<input id="camera" type="text" placeholder="vd Camera 01">
+</div>
+<div>
+<label for="bag">Mã bao (nếu có)</label>
+<input id="bag" type="text">
+</div>
+</div>
+<div>
+<label for="fms-offset">Lệch giờ camera so với FMS (giây, để trống = tự tính)</label>
+<input id="fms-offset" type="text" placeholder="tự tính">
+</div>
+<label>
+<input id="closed" type="checkbox"> Đoạn đã đếm chứa trọn cả phiên đóng bao (chốt tổng)</label>
+<label>
+<input id="only-review" type="checkbox"> Chỉ hiện lượt cần xem lại</label>
+</section>
+<section class="advanced-group">
+<h3>Đánh dấu theo giờ nhập tay</h3>
+<div>
+<label for="target">Vị trí đơn: thời điểm video (mm:ss), giờ camera (HH:MM:SS) hoặc thứ tự (#20)</label>
+<input id="target" type="text" placeholder="vd 12:31.5  hoặc  16:59:40  hoặc  #20">
+</div>
+<div class="row">
+<button id="target-now" type="button">Lấy thời điểm hiện tại</button>
+<button id="mark" type="button" class="primary" disabled>Đánh dấu</button>
+</div>
+</section>
+<section class="advanced-group">
+<h3>Dữ liệu huấn luyện</h3>      <p class="muted">Sau khi "Đánh dấu theo FMS": xem dải 3 khung của từng đơn rồi bấm ✓ Đúng / ✗ Sai / ? Không rõ.
         Khung lệch thì tua video tới đúng lúc kiện vào bao và bấm "Sửa = khung đang xem". Chỉ lưu ảnh nhỏ quanh miệng bao, không tải video.</p>
       <div class="row">
         <button id="train-build" type="button" disabled>Tạo danh sách duyệt</button>
         <button id="train-allok" type="button" disabled>Đánh dấu tất cả chưa duyệt = Đúng</button>
       </div>
-      <label><input id="train-neg" type="checkbox" checked> Kèm mẫu "không có kiện" (tự lấy giữa các lượt đã xác nhận)</label>
-      <div class="stats" id="train-stats"></div>
-      <ul id="train-list" style="list-style:none;padding:0;margin:0;display:grid;gap:6px;max-height:70vh;overflow:auto"></ul>
+      <label>
+<input id="train-neg" type="checkbox" checked> Kèm mẫu "không có kiện" (tự lấy giữa các lượt đã xác nhận)</label>
+      <div class="stats" id="train-stats">
+</div>
+      <ul id="train-list" style="list-style:none;padding:0;margin:0;display:grid;gap:6px;max-height:70vh;overflow:auto">
+</ul>
       <div class="row" style="margin-top:8px">
         <button id="train-save" type="button" class="primary" disabled>Lưu mẫu lên webapp</button>
         <button id="train-dl" type="button" disabled>Tải file mẫu về máy</button>
         <button id="train-dl-all" type="button">Tải toàn bộ mẫu trên webapp</button>
       </div>
-      <p id="train-msg" class="msg"></p>
-    </div>
-
-    <div class="panel">
-      <h2>4. Duyệt các lượt bỏ kiện</h2>
-      <div class="stats" id="stats"><span class="muted">Chưa đếm.</span></div>
-      <p class="muted">AI chỉ đề xuất. Lượt "nghi người che" và "cần kiểm tra" mặc định KHÔNG tính – xem lại và bấm ✓ nếu có kiện. Bấm ảnh để xem lại đoạn đó.</p>
-      <label><input id="only-review" type="checkbox"> Chỉ hiện lượt cần xem lại</label>
-      <ul id="events"></ul>
-    </div>
-
-    <div class="panel">
-      <details open>
-        <summary>Đồng bộ giờ camera (cần cho "Đánh dấu theo FMS" và nhập giờ camera)</summary>
-        <p class="muted">Dừng ở một khung, gõ đúng chữ đồng hồ góc trên trái, vd <code>11-04-2026 Wed 16:48:42</code>.</p>
-        <div class="row">
-          <input id="clock-label" type="text" placeholder="chữ đồng hồ trên khung hiện tại">
-          <button id="clock-run" type="button" disabled>Đồng bộ</button>
-        </div>
-        <p id="clock-msg" class="msg"></p>
-      </details>
-    </div>
-  </section>
+      <p id="train-msg" class="msg">
+</p>
+</section>
+</details>
+</section>
 </main>
 
 <?!= include('LogicBundle') ?>
