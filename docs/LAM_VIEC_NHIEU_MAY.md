@@ -39,3 +39,14 @@ Không sửa cùng lúc trên hai máy. Nếu quên push ở máy sáng thì má
 ## Lịch sử trò chuyện với Claude
 
 Mỗi máy là một phiên Claude riêng, không chung lịch sử chat. Những gì đã chốt đều được ghi vào `AGENTS.md`, `README.md` và thư mục `docs/`, nên Claude ở máy khác đọc repo là nắm được.
+
+## Luật tiết kiệm token cho Claude (chung mọi project)
+
+File `setup/claude-global.md` là luật chung (chia việc Claude/Codex, đọc ít, mở phiên mới). Mỗi máy mới chạy một lần
+(PowerShell) để thêm vào `CLAUDE.md` chung của máy:
+
+```powershell
+Get-Content setup\claude-global.md | Add-Content -Encoding utf8 "$HOME\.claude\CLAUDE.md"
+```
+
+Sửa luật thì sửa `setup/claude-global.md` rồi chép lại (xóa đoạn cũ giữa hai dòng `TIET_KIEM_TOKEN` trước).
