@@ -111,6 +111,17 @@
     <div class="panel">
       <h2>Dữ liệu quét FMS</h2>
       <div style="border:1px solid var(--line);border-radius:8px;padding:10px;background:#f7faff">
+        <b>Lấy TO tự động</b>
+        <div class="row">
+          <button id="fms-load-stations" type="button">Load station</button>
+          <div><label for="fms-station">Station</label><select id="fms-station" disabled><option value="">— Bắn mã đơn để tải station —</option></select></div>
+          <button id="fms-api" type="button" class="primary" disabled>Export TO</button>
+        </div>
+        <p class="muted" style="margin:6px 0 0">Nhập mã đơn ở ô Mã đơn, bấm Load station, chọn station, bấm Export TO.</p>
+      </div>
+      <details style="margin-top:8px">
+        <summary class="muted">Cách dự phòng: nút Lấy TO trên trang FMS</summary>
+      <div style="border:1px solid var(--line);border-radius:8px;padding:10px;background:#f7faff">
         <b>Cách nhanh: nút "Lấy TO" trên thanh dấu trang Chrome</b>
         <ol class="muted" style="margin:6px 0 6px 18px;padding:0">
           <li>Lần đầu: hiện thanh dấu trang (Ctrl+Shift+B), <b>kéo</b> nút vàng bên dưới thả lên thanh đó.</li>
@@ -123,13 +134,6 @@
         </div>
         <p class="muted" style="margin:6px 0 0">Nút chạy trong chính trình duyệt đang đăng nhập FMS (FMS chặn mọi yêu cầu từ máy chủ Google), không gửi cookie đi đâu.</p>
       </div>
-      <details style="margin-top:8px">
-        <summary class="muted">Lấy qua máy chủ webapp (hiện bị FMS chặn – chỉ để thử)</summary>
-        <div class="row">
-          <div><label for="fms-station">Station</label><select id="fms-station" disabled><option value="">— Bắn mã đơn để tải station —</option></select></div>
-          <button id="fms-api" type="button" class="primary" disabled>Lấy TO của station</button>
-        </div>
-        <button id="fms-load-stations" type="button">Tải station của mã đơn</button>
       </details>
       <p class="muted">Dán bảng xuất từ FMS (Excel: chọn vùng có hàng tiêu đề → Ctrl+C → dán vào đây), chọn file CSV,
         hoặc lấy từ sheet "FMS" trên webapp. Cần 3 cột: mã đơn, giờ quét, mã bao.</p>
@@ -188,6 +192,7 @@
       <div class="row" style="margin-top:8px">
         <button id="train-save" type="button" class="primary" disabled>Lưu mẫu lên webapp</button>
         <button id="train-dl" type="button" disabled>Tải file mẫu về máy</button>
+        <button id="train-dl-all" type="button">Tải toàn bộ mẫu trên webapp</button>
       </div>
       <p id="train-msg" class="msg"></p>
     </div>
@@ -465,8 +470,8 @@
   const STATION_STORE = 'dem-kien.fms-station';
   let stationsFor = '', stationsReq = 0;
   $('fms-api').addEventListener('click', () => fetchFms());
-  $('fms-station').addEventListener('change', () => { if ($('fms-station').value) fetchFms(); });
-  /** Bắn mã đơn -> tải các station có TO; chọn sẵn station dùng lần trước (nếu đơn có đi qua) và lấy luôn. */
+  $('fms-station').addEventListener('change', () => { $('fms-api').disabled = !$('fms-station').value; });
+  /** Bắn mã đơn -> tải các station có TO; chọn sẵn station dùng lần trước và chờ bấm Export TO. */
   async function loadStations() {
     const order = $('order').value.trim().toUpperCase();
     if (!order || !inGas()) return;
@@ -485,11 +490,13 @@
       }
       stationsFor = order;
       sel.replaceChildren(new Option(`— Chọn station (${r.stations.length}) —`, ''),
-        ...r.stations.map((s) => new Option(`${s.station} · ${s.to}` + (s.scanTime ? ` · ${s.scanTime.slice(11)}` : ''), s.station)));
+        ...r.stations.map((s) => new Option(`${s.station} · ${s.to}`, s.station)));
       sel.disabled = false;
       const last = load(STATION_STORE);
-      if (last && r.stations.some((s) => s.station === last)) { sel.value = last; await fetchFms(); }
-      else { msg('fms-msg', `Đơn ${order} qua ${r.stations.length} station có TO. Chọn station để lấy TO.`); sel.focus(); }
+      if (last && r.stations.some((s) => s.station === last)) sel.value = last;
+      $('fms-api').disabled = !sel.value;
+      msg('fms-msg', `Đơn ${order} qua ${r.stations.length} station có TO. Chọn station rồi bấm Export TO.`);
+      if (!sel.value) sel.focus();
     } catch (e) {
       if (req !== stationsReq) return;
       sel.replaceChildren(new Option('— Lỗi tải station —', ''));
@@ -509,9 +516,10 @@
       if (!r.ok) { msg('fms-msg', r.message, 'err'); return false; }
       setFms([r.header, ...r.rows], `FMS ${r.to}`);
       const warn = r.missingTime ? `\nThiếu giờ quét ${r.missingTime}/${r.total} đơn.` : '';
-      msg('fms-msg', `Đơn ${r.order} thuộc ${r.to} tại ${r.station} (quét ${String(r.scanTime || '?').replace('T', ' ')}). ` +
-        `Lấy ${r.total} đơn của TO (giờ theo ${r.source}).` + warn +
-        (r.listFields && r.listFields.length ? `\nTrường API danh sách TO: ${r.listFields.slice(0, 12).join(', ')}` : ''), r.missingTime ? 'err' : 'okc');
+      const range = r.first && r.last ? `\nBắt đầu đếm: ${r.first.order} (${r.first.time.slice(11, 19)}) · Dừng đếm: ${r.last.order} (${r.last.time.slice(11, 19)})` : '';
+      const partial = r.apiTotal > r.total ? `\nFMS báo ${r.apiTotal} đơn nhưng chỉ lấy được ${r.total}.` : '';
+      msg('fms-msg', `TO ${r.to} tại ${r.station}${r.dest ? ' → ' + r.dest : ''}: ${r.total} đơn.` +
+        range + partial + warn, r.missingTime || r.apiTotal > r.total ? 'err' : 'okc');
       return true;
     } catch (e) { msg('fms-msg', 'Không lấy được từ FMS: ' + (e && e.message || e), 'err'); return false; }
     finally { $('fms-api').disabled = !$('fms-station').value; }
@@ -778,6 +786,7 @@
     $('train-allok').disabled = st.busy || !has;
     $('train-save').disabled = st.busy || !has;
     $('train-dl').disabled = st.busy || !has;
+    $('train-dl-all').disabled = st.busy;
   };
   function trainMeta() {
     const f = st.fmsResult;
@@ -903,6 +912,29 @@
       setTimeout(() => URL.revokeObjectURL(a.href), 5000);
       msg('train-msg', `Đã tạo file ${samples.length} mẫu.`, 'okc');
     } catch (e) { msg('train-msg', 'Lỗi: ' + e.message, 'err'); }
+    finally { setBusy(false); trainBtns(); }
+  });
+
+  $('train-dl-all').addEventListener('click', async () => {
+    setBusy(true);
+    try {
+      const samples = [];
+      let offset = 0;
+      do {
+        const res = await rpc('uiExportTrainingSamples', offset, 30);
+        samples.push(...res.samples);
+        msg('train-msg', `Đang tải mẫu ${samples.length}/${res.total}…`);
+        offset = res.next;
+      } while (offset !== null);
+      if (!samples.length) { msg('train-msg', 'Webapp chưa có mẫu nào.', 'err'); return; }
+      const blob = new Blob([JSON.stringify({ format: 'dem-kien-train/1', createdAt: new Date().toISOString(), samples })], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `mau_huan_luyen_tat_ca_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      msg('train-msg', `Đã tải ${samples.length} mẫu.`, 'okc');
+    } catch (e) { msg('train-msg', 'Lỗi: ' + (e && e.message || e), 'err'); }
     finally { setBusy(false); trainBtns(); }
   });
 
