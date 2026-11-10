@@ -77,8 +77,16 @@
         <span class="time" id="tnow">00:00.0</span>
       </div>
       <input id="seekbar" type="range" min="0" max="1000" value="0" style="width:100%">
+      <canvas id="ai-timeline" height="48" style="width:100%;height:48px;background:#182b40;cursor:pointer" hidden aria-label="Dải thời gian AI"></canvas>
       <div class="row" style="margin-top:8px">
         <button id="draw" type="button" class="primary">Khoanh miệng bao</button>
+        <button id="draw-zone" type="button">Khoanh ô xét (người đóng + bao)</button>
+        <button id="draw-mouth" type="button">Khoanh miệng bao (đa giác)</button>
+        <button id="finish-mouth" type="button" hidden>Xong đa giác</button>
+        <button id="pick-packer" type="button" disabled>Chọn người đóng</button>
+        <button id="score-ai" type="button" disabled>AI chấm lượt</button>
+        <button id="apply-ai" type="button" disabled>Áp dụng đề xuất AI</button>
+        <label><input id="show-ai" type="checkbox"> Xem AI</label>
         <span class="muted" id="roi-info">Chưa khoanh vùng. Kéo chuột quanh miệng bao.</span>
       </div>
     </div>
@@ -225,7 +233,8 @@
 (function () {
   const A = window.CountingApp;
   const $ = (id) => document.getElementById(id);
-  const st = { h: null, file: null, roi: null, scan: null, decisions: {}, counts: {}, abort: null, sync: null, clock: null, target: null, busy: false };
+  const st = { h: null, file: null, roi: null, scan: null, decisions: {}, counts: {}, abort: null, sync: null, clock: null, target: null, busy: false,
+    zone: null, mouth: null, packerBox: null, ai: {}, showAi: false, pickPeople: [] };
 
   // ---------- tiện ích ----------
   const fmt = (s) => { if (!isFinite(s)) return '—'; const m = Math.floor(s / 60); return String(m).padStart(2, '0') + ':' + (s - m * 60).toFixed(1).padStart(4, '0'); };
@@ -246,10 +255,13 @@
   }
   function setBusy(b) {
     st.busy = b;
-    ['scan', 'mark', 'clock-run', 'draw', 'file'].forEach((id) => { $(id).disabled = b || (id !== 'file' && !st.h); });
-    if (!b) refreshButtons();
+    ['scan', 'mark', 'clock-run', 'draw', 'file', 'draw-zone', 'draw-mouth', 'finish-mouth'].forEach((id) => { $(id).disabled = b || (id !== 'file' && !st.h); });
+    refreshButtons();
   }
   function refreshButtons() {
+    $('pick-packer').disabled = st.busy || !st.h || !st.zone;
+    $('score-ai').disabled = st.busy || !st.scan || !st.zone || !st.mouth || !st.packerBox;
+    $('apply-ai').disabled = st.busy || !st.scan || !Object.keys(st.ai).length;
     $('scan').disabled = st.busy || !st.h || !st.roi;
     $('mark').disabled = st.busy || !st.scan;
     $('mark-fms').disabled = st.busy || !st.h || !st.fms || !st.fms.scans.length;
@@ -263,7 +275,10 @@
   async function openFile(src, name) {
     try {
       if (st.h) st.h.close();
-      Object.assign(st, { h: null, roi: null, scan: null, decisions: {}, counts: {}, sync: null, clock: null, target: null });
+      endDrawing(); stopReplay();
+      Object.assign(st, { h: null, roi: null, scan: null, decisions: {}, counts: {}, sync: null, clock: null, target: null,
+        zone: null, mouth: null, packerBox: null, ai: {}, showAi: false, pickPeople: [] });
+      $('show-ai').checked = false; drawTimeline();
       $('events').replaceChildren(); $('result').hidden = true; renderStats();
       msg('video-msg', 'Đang mở video…');
       st.h = await A.video.openVideo(src, video);
@@ -276,7 +291,7 @@
   }
   $('file').addEventListener('change', () => { const f = $('file').files[0]; if (f) openFile(f, f.name); });
 
-  function tick() { $('tnow').textContent = fmt(video.currentTime) + (st.sync ? '  ·  ' + wallStr(video.currentTime) : ''); if (st.h) $('seekbar').value = Math.round(1000 * video.currentTime / st.h.durationS); }
+  function tick() { $('tnow').textContent = fmt(video.currentTime) + (st.sync ? '  ·  ' + wallStr(video.currentTime) : ''); if (st.h) $('seekbar').value = Math.round(1000 * video.currentTime / st.h.durationS); if (st.showAi) drawOverlay(); drawTimeline(); }
   video.addEventListener('timeupdate', tick); video.addEventListener('seeked', tick);
   $('seekbar').addEventListener('input', () => { if (st.h && !st.busy) video.currentTime = $('seekbar').value / 1000 * st.h.durationS; });
   $('play').addEventListener('click', () => { if (st.busy) return; video.paused ? video.play() : video.pause(); });
@@ -292,37 +307,222 @@
     let w = W, h = W / r; if (h > H) { h = H; w = H * r; }
     return { x: (W - w) / 2, y: (H - h) / 2, w, h };
   }
+  let drawMode = null, drag = null, mouthPoints = [];
+  function endDrawing() {
+    drawMode = null; drag = null; mouthPoints = []; st.pickPeople = [];
+    $('stage').classList.remove('drawing'); $('finish-mouth').hidden = true;
+  }
+  function beginDrawing(mode) {
+    if (!st.h || st.busy) return;
+    stopReplay(); video.pause(); endDrawing(); drawMode = mode;
+    $('stage').classList.add('drawing'); $('finish-mouth').hidden = mode !== 'mouth'; drawOverlay();
+  }
+  function framePoint(x, y) {
+    const r = videoRect();
+    if (x < r.x || y < r.y || x > r.x+r.w || y > r.y+r.h) return null;
+    return [(x-r.x)*st.h.width/r.w, (y-r.y)*st.h.height/r.h];
+  }
+  const aiLabel = (r) => r.decision === 1 ? '+1' : r.decision === 0 ? '0' : '?';
   function drawOverlay() {
     ov.width = ov.clientWidth; ov.height = ov.clientHeight;
     const c = ov.getContext('2d'); c.clearRect(0, 0, ov.width, ov.height);
-    if (!st.h || !st.roi) return;
-    const vr = videoRect(), sx = vr.w / st.h.width, sy = vr.h / st.h.height;
-    c.strokeStyle = '#ffd400'; c.lineWidth = 2;
-    c.strokeRect(vr.x + st.roi.x * sx, vr.y + st.roi.y * sy, st.roi.w * sx, st.roi.h * sy);
+    if (!st.h) return;
+    const vr = videoRect(), sx = vr.w/st.h.width, sy = vr.h/st.h.height;
+    const xy = ([x,y]) => [vr.x+x*sx, vr.y+y*sy];
+    const rect = (r, color, dash = []) => {
+      c.strokeStyle = color; c.lineWidth = 2; c.setLineDash(dash);
+      c.strokeRect(vr.x+r.x*sx, vr.y+r.y*sy, r.w*sx, r.h*sy); c.setLineDash([]);
+    };
+    const path = (points, color, close = false) => {
+      if (!points.length) return;
+      c.beginPath(); points.forEach((p,i) => { const [x,y] = xy(p); i ? c.lineTo(x,y) : c.moveTo(x,y); });
+      if (close) { c.closePath(); c.fillStyle = '#3fa9ff28'; c.fill(); }
+      c.strokeStyle = color; c.lineWidth = 2; c.stroke();
+    };
+    const person = (p, selected) => {
+      c.strokeStyle = c.fillStyle = selected ? '#39e675' : '#a0a6ad'; c.lineWidth = selected ? 4 : 2;
+      const k = p.kps || [];
+      for (const [a,b] of A.pose.SKELETON) if (k[a]?.[2] >= .3 && k[b]?.[2] >= .3) {
+        c.beginPath(); c.moveTo(...xy(k[a])); c.lineTo(...xy(k[b])); c.stroke();
+      }
+      for (const pt of k) if (pt[2] >= .3) { c.beginPath(); c.arc(...xy(pt),3,0,Math.PI*2); c.fill(); }
+      if (drawMode === 'pick') { const b = p.box; rect({x:b.x1,y:b.y1,w:b.x2-b.x1,h:b.y2-b.y1}, '#a0a6ad'); }
+    };
+    if (st.roi) rect(st.roi, '#ffd400');
+    if (st.zone) rect(st.zone, '#ffd400', [7,5]);
+    if (st.mouth) path(st.mouth, '#3fa9ff', true);
+    if (mouthPoints.length) {
+      path(mouthPoints, '#3fa9ff');
+      c.fillStyle = '#3fa9ff';
+      for (const p of mouthPoints) { c.beginPath(); c.arc(...xy(p),4,0,Math.PI*2); c.fill(); }
+      c.beginPath(); c.arc(...xy(mouthPoints[0]),12,0,Math.PI*2); c.stroke();
+    }
+    if (drawMode === 'pick') for (const p of st.pickPeople) person(p, false);
+    if (st.packerBox && drawMode !== 'pick' && !st.showAi) {
+      const b = st.packerBox; rect({x:b.x1,y:b.y1,w:b.x2-b.x1,h:b.y2-b.y1}, '#39e675');
+    }
+    if (st.showAi && st.scan && drawMode !== 'pick') {
+      const items = numbered().items;
+      const ev = items.filter((e) => st.ai[e.id] && Math.abs(e.peakS-video.currentTime) <= 1.2)
+        .sort((a,b) => Math.abs(a.peakS-video.currentTime)-Math.abs(b.peakS-video.currentTime))[0];
+      if (ev) {
+        const {res,frames} = st.ai[ev.id];
+        const frame = frames.reduce((best,f) => !best || Math.abs(f.t-video.currentTime)<Math.abs(best.t-video.currentTime) ? f : best, null);
+        for (const p of frame?.people || []) person(p, res.who != null && p.id === res.who);
+        path(res.trail || [], '#ff4545'); c.fillStyle = '#ff4545';
+        for (const p of res.trail || []) { c.beginPath(); c.arc(...xy(p),3,0,Math.PI*2); c.fill(); }
+        const lines = ['Lượt #' + (items.indexOf(ev)+1) + ' · AI: ' + aiLabel(res) + ' · tin cậy ' + res.score.toFixed(2), ...res.reasons];
+        c.font = '13px system-ui';
+        const x = Math.max(0, Math.min(ov.width-20, vr.x+(st.zone?.x || 0)*sx));
+        const y = Math.max(0, Math.min(ov.height-lines.length*19-12, vr.y+(st.zone?.y || 0)*sy));
+        const width = Math.min(ov.width-x, Math.max(...lines.map((l) => c.measureText(l).width))+16);
+        c.fillStyle = '#000c'; c.fillRect(x,y,width,lines.length*19+12); c.fillStyle = '#fff';
+        lines.forEach((l,i) => c.fillText(l,x+8,y+19+i*19,Math.max(1,width-16)));
+      }
+    }
+    if (drag) {
+      c.strokeStyle = '#ffd400'; c.setLineDash([6,4]); c.lineWidth = 2;
+      c.strokeRect(Math.min(drag.x0,drag.x1),Math.min(drag.y0,drag.y1),Math.abs(drag.x1-drag.x0),Math.abs(drag.y1-drag.y0));
+    }
   }
-  window.addEventListener('resize', drawOverlay);
-  let drag = null;
-  $('draw').addEventListener('click', () => { $('stage').classList.toggle('drawing'); video.pause(); });
-  ov.addEventListener('pointerdown', (e) => { if (!st.h) return; ov.setPointerCapture(e.pointerId); drag = { x0: e.offsetX, y0: e.offsetY, x1: e.offsetX, y1: e.offsetY }; });
-  ov.addEventListener('pointermove', (e) => {
-    if (!drag) return; drag.x1 = e.offsetX; drag.y1 = e.offsetY;
-    drawOverlay(); const c = ov.getContext('2d'); c.strokeStyle = '#ffd400'; c.setLineDash([6, 4]); c.lineWidth = 2;
-    c.strokeRect(Math.min(drag.x0, drag.x1), Math.min(drag.y0, drag.y1), Math.abs(drag.x1 - drag.x0), Math.abs(drag.y1 - drag.y0));
+  window.addEventListener('resize', () => { drawOverlay(); drawTimeline(); });
+  $('draw').addEventListener('click', () => { if (drawMode === 'roi') { endDrawing(); drawOverlay(); } else beginDrawing('roi'); });
+  $('draw-zone').addEventListener('click', () => beginDrawing('zone'));
+  $('draw-mouth').addEventListener('click', () => { beginDrawing('mouth'); msg('roi-info', 'Bấm ít nhất 3 điểm; bấm gần điểm đầu hoặc Xong đa giác để đóng.'); });
+  function finishMouth() {
+    if (st.busy || drawMode !== 'mouth') return;
+    if (mouthPoints.length < 3) { msg('roi-info', 'Cần ít nhất 3 điểm.', 'err'); return; }
+    st.mouth = mouthPoints.map((p) => [...p]);
+    const xs = st.mouth.map((p) => p[0]), ys = st.mouth.map((p) => p[1]);
+    const x = Math.floor(Math.min(...xs)), y = Math.floor(Math.min(...ys));
+    const w = Math.ceil(Math.max(...xs))-x, h = Math.ceil(Math.max(...ys))-y;
+    if (w < 1 || h < 1 || Math.abs(st.mouth.reduce((a,p,i,ps) => { const q = ps[(i+1)%ps.length]; return a+p[0]*q[1]-q[0]*p[1]; },0)) < 1) {
+      st.mouth = null; msg('roi-info', 'Đa giác không có diện tích, hãy khoanh lại.', 'err'); return;
+    }
+    endDrawing(); setRoi({x,y,w,h});
+  }
+  $('finish-mouth').addEventListener('click', finishMouth);
+  ov.addEventListener('pointerdown', (e) => {
+    if (!st.h || st.busy || !drawMode || !framePoint(e.offsetX,e.offsetY)) return;
+    ov.setPointerCapture(e.pointerId);
+    drag = {x0:e.offsetX,y0:e.offsetY,x1:e.offsetX,y1:e.offsetY};
   });
-  ov.addEventListener('pointerup', () => {
-    if (!drag) return;
-    const vr = videoRect(), sx = st.h.width / vr.w, sy = st.h.height / vr.h;
-    const x = Math.max(0, (Math.min(drag.x0, drag.x1) - vr.x) * sx), y = Math.max(0, (Math.min(drag.y0, drag.y1) - vr.y) * sy);
-    const w = Math.min(st.h.width - x, Math.abs(drag.x1 - drag.x0) * sx), h = Math.min(st.h.height - y, Math.abs(drag.y1 - drag.y0) * sy);
-    drag = null; $('stage').classList.remove('drawing');
-    if (w < 12 || h < 12) { msg('scan-msg', 'Vùng khoanh quá nhỏ, khoanh lại.', 'err'); drawOverlay(); return; }
-    setRoi({ x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) });
+  ov.addEventListener('pointermove', (e) => {
+    if (!drag || !['roi','zone'].includes(drawMode)) return;
+    drag.x1 = e.offsetX; drag.y1 = e.offsetY; drawOverlay();
+  });
+  ov.addEventListener('pointercancel', () => { drag = null; drawOverlay(); });
+  ov.addEventListener('pointerup', (e) => {
+    if (!drag || st.busy) return;
+    const d = drag; drag = null;
+    const point = framePoint(e.offsetX,e.offsetY);
+    if (drawMode === 'mouth') {
+      if (!point) return;
+      const r = videoRect();
+      if (mouthPoints.length >= 3 && Math.hypot((point[0]-mouthPoints[0][0])*r.w/st.h.width,(point[1]-mouthPoints[0][1])*r.h/st.h.height) <= 12) finishMouth();
+      else { mouthPoints.push(point); drawOverlay(); }
+      return;
+    }
+    if (drawMode === 'pick') {
+      if (!point) return;
+      const p = A.pose.pickPerson(st.pickPeople, point);
+      if (!p) { msg('roi-info', 'Không trúng người nào, hãy chọn lại.', 'err'); return; }
+      st.packerBox = {...p.box}; st.ai = {}; endDrawing();
+      msg('roi-info', 'Đã chọn người đóng', 'okc'); refreshButtons(); renderEvents(); drawOverlay(); return;
+    }
+    const vr = videoRect();
+    const clip = (v,lo,hi) => Math.max(lo,Math.min(hi,v));
+    const x = Math.floor((clip(Math.min(d.x0,e.offsetX),vr.x,vr.x+vr.w)-vr.x)*st.h.width/vr.w);
+    const y = Math.floor((clip(Math.min(d.y0,e.offsetY),vr.y,vr.y+vr.h)-vr.y)*st.h.height/vr.h);
+    const w = Math.round((clip(Math.max(d.x0,e.offsetX),vr.x,vr.x+vr.w)-vr.x)*st.h.width/vr.w)-x;
+    const h = Math.round((clip(Math.max(d.y0,e.offsetY),vr.y,vr.y+vr.h)-vr.y)*st.h.height/vr.h)-y;
+    const mode = drawMode; endDrawing();
+    if (w < 12 || h < 12) { msg('roi-info', 'Vùng khoanh quá nhỏ, khoanh lại.', 'err'); drawOverlay(); return; }
+    if (mode === 'zone') {
+      st.zone = {x,y,w,h}; st.packerBox = null; st.ai = {};
+      msg('roi-info', 'Đã khoanh ô xét. Chọn người đóng trên khung hiện tại.', 'okc'); refreshButtons(); renderEvents(); drawOverlay();
+    } else { st.mouth = null; setRoi({x,y,w,h}); }
   });
   function setRoi(r) {
-    st.roi = r; st.scan = null; $('events').replaceChildren(); renderStats(); $('result').hidden = true;
-    $('roi-info').textContent = `Vùng đếm: x=${r.x} y=${r.y} rộng=${r.w} cao=${r.h}`;
-    drawOverlay(); refreshButtons();
+    st.roi = r; st.scan = null; st.ai = {}; st.target = null; $('events').replaceChildren(); renderStats(); $('result').hidden = true;
+    $('roi-info').textContent = 'Vùng đếm: x=' + r.x + ' y=' + r.y + ' rộng=' + r.w + ' cao=' + r.h;
+    drawOverlay(); drawTimeline(); refreshButtons();
   }
+
+  async function loadPose() {
+    msg('roi-info', 'Đang tải model nhận người (~23 MB)…');
+    await A.posemodel.loadPoseModel({onProgress: ({progress,loaded}) => {
+      msg('roi-info', progress == null ? 'Đang tải model: ' + (loaded/1048576).toFixed(1) + ' / ~23 MB' : 'Đang tải model: ' + Math.round(progress*100) + '% (~23 MB)');
+    }});
+  }
+  $('pick-packer').addEventListener('click', async () => {
+    if (st.busy || !st.zone) return;
+    beginDrawing('pick'); setBusy(true);
+    try {
+      await loadPose(); st.pickPeople = await A.posemodel.detectPeople(video,st.zone);
+      msg('roi-info', st.pickPeople.length ? 'Bấm vào người đóng để chọn.' : 'Không thấy người. Chọn khung khác rồi thử lại.', st.pickPeople.length ? '' : 'err');
+      if (!st.pickPeople.length) endDrawing();
+    } catch (e) { endDrawing(); msg('roi-info', 'Không nhận được người: ' + e.message, 'err'); }
+    finally { setBusy(false); drawOverlay(); }
+  });
+  $('show-ai').addEventListener('change', () => { st.showAi = $('show-ai').checked; drawOverlay(); });
+  $('score-ai').addEventListener('click', async () => {
+    if (st.busy || !st.scan || !st.zone || !st.mouth || !st.packerBox) return;
+    endDrawing(); stopReplay(); video.pause(); const back = video.currentTime;
+    setBusy(true); st.abort = new AbortController(); const signal = st.abort.signal;
+    $('cancel').hidden = false; $('prog').hidden = false; $('prog').value = 0; st.ai = {};
+    try {
+      await loadPose();
+      for (const [i,ev] of st.scan.events.entries()) {
+        signal.throwIfAborted(); msg('scan-msg', 'AI đang chấm lượt ' + (i+1) + '/' + st.scan.events.length + '…');
+        const frames = await A.posemodel.posesAround(video,st.zone,ev.peakS,{winS:.8,n:10,signal});
+        signal.throwIfAborted();
+        const res = A.attrib.attribute({t:ev.peakS,kind:ev.kind},frames,{packerBox:st.packerBox,mouth:st.mouth});
+        st.ai[ev.id] = {res,frames}; $('prog').value = (i+1)/st.scan.events.length;
+      }
+      msg('scan-msg', 'AI đã chấm xong. Xem lý do và duyệt đề xuất.', 'okc');
+    } catch (e) { msg('scan-msg', signal.aborted ? 'Đã hủy AI; giữ các lượt đã chấm.' : 'Lỗi AI: ' + e.message, 'err'); }
+    finally {
+      await A.video.seek(video,back).catch(() => {});
+      $('cancel').hidden = true; $('prog').hidden = true; setBusy(false); renderEvents(); drawOverlay(); drawTimeline();
+    }
+  });
+  $('apply-ai').addEventListener('click', () => {
+    if (st.busy || !st.scan) return;
+    for (const ev of st.scan.events) {
+      const res = st.ai[ev.id]?.res;
+      if (st.decisions[ev.id] === undefined && res && res.decision != null) st.decisions[ev.id] = res.decision === 1 ? 'accept' : 'reject';
+    }
+    renderEvents(); drawOverlay(); if (st.target) mark(true);
+  });
+  function drawTimeline() {
+    const canvas = $('ai-timeline'); canvas.hidden = !st.scan;
+    if (!st.scan || !st.h) return;
+    canvas.width = Math.max(1,canvas.clientWidth); canvas.height = 48;
+    const c = canvas.getContext('2d'), w = canvas.width, h = canvas.height;
+    const x = (t) => Math.max(0,Math.min(w,t/st.h.durationS*w));
+    const act = st.scan.act || [], times = st.scan.times || [];
+    let max = 0; for (const v of act) if (Number.isFinite(v)) max = Math.max(max,v);
+    c.fillStyle = '#7e8791';
+    for (let i=0;i<act.length;i++) if (Number.isFinite(times[i]) && Number.isFinite(act[i])) {
+      const height = max ? act[i]/max*32 : 0;
+      c.fillRect(x(times[i]),h-height,Math.max(1,x(times[i+1] ?? times[i]+.1)-x(times[i])),height);
+    }
+    const pos = st.fms && st.sync?.segments.length && fmsPos();
+    if (pos) { c.strokeStyle = '#c17dff'; for (const scan of scansInVideo(pos).inVid) { c.beginPath(); c.moveTo(x(scan.v),0); c.lineTo(x(scan.v),h); c.stroke(); } }
+    for (const ev of st.scan.events) {
+      const res = st.ai[ev.id]?.res;
+      c.beginPath(); c.arc(Math.max(4,Math.min(w-4,x(ev.peakS))),12,4,0,Math.PI*2);
+      if (res) { c.fillStyle = res.decision === 1 ? '#39e675' : res.decision === 0 ? '#949ba4' : '#ffa43b'; c.fill(); }
+      c.strokeStyle = '#fff'; c.stroke();
+    }
+    c.strokeStyle = '#fff'; c.beginPath(); c.moveTo(x(video.currentTime),0); c.lineTo(x(video.currentTime),h); c.stroke();
+  }
+  $('ai-timeline').addEventListener('click', (e) => {
+    if (st.busy || !st.h) return;
+    stopReplay(); video.pause(); const r = e.currentTarget.getBoundingClientRect();
+    video.currentTime = Math.max(0,Math.min(1,(e.clientX-r.left)/r.width))*st.h.durationS;
+  });
 
   $('set-from').addEventListener('click', () => { $('from').value = fmt(video.currentTime); });
   $('set-to').addEventListener('click', () => { $('to').value = fmt(video.currentTime); });
@@ -332,7 +532,7 @@
     const a = parseMmss($('from').value), b = parseMmss($('to').value);
     const startS = a ?? 0, endS = b ?? st.h.durationS;
     if (Number.isNaN(startS) || Number.isNaN(endS) || endS <= startS) { msg('scan-msg', 'Khoảng thời gian không hợp lệ (mm:ss).', 'err'); return; }
-    video.pause(); setBusy(true);
+    endDrawing(); stopReplay(); video.pause(); setBusy(true); st.ai = {};
     st.abort = new AbortController(); $('cancel').hidden = false; $('prog').hidden = false; $('prog').value = 0;
     const t0 = performance.now();
     try {
@@ -366,7 +566,7 @@
     add('Số kiện đang tính', n.total); add('Lượt nghi vấn', n.items.length); add('Cần xem lại', review); add('Chưa duyệt', pend);
   }
   function renderEvents() {
-    renderStats();
+    renderStats(); drawTimeline(); refreshButtons();
     const ul = $('events'); ul.replaceChildren();
     if (!st.scan) return;
     const n = numbered();
@@ -397,6 +597,18 @@
       const acts = document.createElement('div'); acts.className = 'acts';
       const btn = (t, f) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = t; b.addEventListener('click', f); return b; };
       acts.append(btn('✓ Tính', () => decide(it.id, 'accept')), btn('✗ Bỏ', () => decide(it.id, 'reject')), btn('Xem lại', () => replay(it)));
+      if (st.ai[it.id]) {
+        const {res} = st.ai[it.id];
+        body.append(Object.assign(document.createElement('div'), {
+          className: res.decision === 1 ? 'okc' : res.decision === 0 ? 'muted' : 'err',
+          textContent: `AI: ${aiLabel(res)} (${res.score.toFixed(2)}) – ${res.reasons.join('; ')}`
+        }));
+        acts.append(btn('Xem AI', () => {
+          if (st.busy) return;
+          st.showAi = true; $('show-ai').checked = true;
+          replay({startS: it.peakS - .8, endS: it.peakS + .5}, true);
+        }));
+      }
       const cnt = document.createElement('span'); cnt.className = 'cnt';
       cnt.append('Số kiện:', btn('−', () => setCount(it.id, -1)), Object.assign(document.createElement('b'), { textContent: String(st.counts[it.id] || 1) }), btn('+', () => setCount(it.id, +1)));
       acts.append(cnt);
@@ -407,13 +619,24 @@
   $('only-review').addEventListener('change', renderEvents);
   function decide(id, d) { st.decisions[id] = st.decisions[id] === d ? undefined : d; renderEvents(); if (st.target) mark(true); }
   function setCount(id, d) { st.counts[id] = Math.max(1, Math.min(9, (st.counts[id] || 1) + d)); if (!st.decisions[id]) st.decisions[id] = 'accept'; renderEvents(); if (st.target) mark(true); }
-  async function replay(it) {
+  let replayStop = null, replayVersion = 0;
+  function stopReplay() {
+    replayVersion++;
+    if (replayStop) video.removeEventListener('timeupdate', replayStop);
+    replayStop = null; video.playbackRate = 1;
+  }
+  async function replay(it, ai = false) {
     if (st.busy) return;
-    video.currentTime = Math.max(0, it.startS - 1);
-    await new Promise((r) => video.addEventListener('seeked', r, { once: true }));
-    video.playbackRate = 0.5; video.play();
-    const stop = () => { if (video.currentTime >= it.endS + 0.8) { video.pause(); video.playbackRate = 1; video.removeEventListener('timeupdate', stop); } };
-    video.addEventListener('timeupdate', stop);
+    stopReplay(); video.pause(); const version = replayVersion;
+    const end = Math.min(st.h.durationS, it.endS + (ai ? 0 : .8));
+    try {
+      await A.video.seek(video, Math.max(0, it.startS - (ai ? 0 : 1)));
+      if (version !== replayVersion) return;
+      drawOverlay(); video.playbackRate = .5;
+      replayStop = () => { if (video.currentTime >= end || video.ended) { video.pause(); stopReplay(); } };
+      video.addEventListener('timeupdate', replayStop);
+      await video.play();
+    } catch (e) { stopReplay(); msg('scan-msg', 'Không phát được: ' + e.message, 'err'); }
   }
 
   // ---------- đánh dấu đơn ----------
