@@ -1,11 +1,11 @@
 # HANDOFF
-Khóa: Codex (phiếu 3B tự động hóa)
+Khóa: trống
 Cập nhật: 2026-11-10 bởi Claude
 
 ## Đang làm
 - Việc: Đếm AI 2 hướng + Xem AI (thiết kế: docs/HUONG_DEM_AI.md). Người dùng chọn RTMO-m (Xenova/RTMO-m int8, onnxruntime-web CDN).
 - File đang sửa: không
-- Đã xong: phiếu 1 lõi pose/attrib/posemodel + test (4076999); phiếu 2 giao diện Hướng 2 + Xem AI + dải thời gian trên gas/Dem.html (7b51895). npm test 55 đạt.
+- Đã xong: lõi pose/attrib (4076999); giao diện Hướng 2 + Xem AI (7b51895); giao diện mới 3 bước tông xanh + mục Nâng cao (1c8a43e); tự chạy cả chuỗi + ngày giờ + tự lưu mẫu ✓/✗ (phiếu 3B). npm test 55 đạt.
 - Còn lại:
   1. Chạy thử thật trên trình duyệt với video kho: model tải được không, thứ tự kênh RGB/BGR (hằng CHANNELS trong browser/posemodel.mjs), tốc độ mỗi lượt.
   2. attrib.mjs: người đóng chỉ tìm ở khung ĐẦU của cửa sổ 0,8s; nếu khung đầu không thấy thì ra "cần duyệt" – nên tìm ở khung đầu tiên có người trùng packerBox.
@@ -27,6 +27,7 @@ Cập nhật: 2026-11-10 bởi Claude
 - Máy hiện tại: không có GPU NVIDIA (Intel Graphics, 16 GB RAM) → chỉ huấn luyện mô hình nhỏ trên CPU; mô hình lớn cần máy RTX 4060 cũ.
 
 ## Chờ người dùng
+- Đồng ý push + deploy bản giao diện mới (chưa thử với video/TO thật).
 - Đã push + deploy @3 (2026-11-10 11:11). Chờ người dùng chạy thử Load station / Export TO với đơn thật.
 - Xác nhận chỗ để cookie: đang đọc spreadsheet "Phân quyền" G1/G2 (script thử của người dùng đọc tab 🔐Cookies🔑 A1/A2/C1).
 - Đã chọn: thu mẫu bằng duyệt trên webapp. `clasp push` xong 2026-11-10 10:33 (code trên GAS vốn đã trùng repo; giữ `gas/aa.js` của người dùng).
