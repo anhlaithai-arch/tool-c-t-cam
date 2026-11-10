@@ -1,6 +1,6 @@
 # HANDOFF
 Khóa: trống
-Cập nhật: 2026-11-10 11:45 bởi Claude
+Cập nhật: 2026-11-10 11:12 bởi Claude
 
 ## Đang làm
 - Việc (ưu tiên, người dùng giao 11:10): lấy TO qua Cloudflare Worker — mã đơn → Load station (API 1) → Export TO (API 2) → bảng FMS; đơn quét đầu = bắt đầu đếm, đơn quét cuối = dừng. Sau đó: huấn luyện đếm bỏ vào (đang chờ dữ liệu).
@@ -25,7 +25,7 @@ Cập nhật: 2026-11-10 11:45 bởi Claude
 - Máy hiện tại: không có GPU NVIDIA (Intel Graphics, 16 GB RAM) → chỉ huấn luyện mô hình nhỏ trên CPU; mô hình lớn cần máy RTX 4060 cũ.
 
 ## Chờ người dùng
-- Đồng ý `clasp push` + `clasp update-deployment` để chạy thử luồng Worker trên webapp thật.
+- Đã push + deploy @3 (2026-11-10 11:11). Chờ người dùng chạy thử Load station / Export TO với đơn thật.
 - Xác nhận chỗ để cookie: đang đọc spreadsheet "Phân quyền" G1/G2 (script thử của người dùng đọc tab 🔐Cookies🔑 A1/A2/C1).
 - Đã chọn: thu mẫu bằng duyệt trên webapp. `clasp push` xong 2026-11-10 10:33 (code trên GAS vốn đã trùng repo; giữ `gas/aa.js` của người dùng).
 - Webapp đã deploy @2 (2026-11-10), quyền DOMAIN (quản trị Workspace chặn ANYONE). Link: https://script.google.com/macros/s/AKfycbzRq-C0E2nQcYOCkseXwnjojbspMLYaFAA3XHgJT5faw8KVWXT5VdyZzVfWh87CQ6nfPA/exec (trang Đếm: thêm `?page=dem`). Chờ người dùng mở thử, chạy `setup()` nếu chưa, bắt đầu duyệt mẫu.
