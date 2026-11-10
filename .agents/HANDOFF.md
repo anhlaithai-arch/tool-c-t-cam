@@ -1,5 +1,5 @@
 # HANDOFF
-Khóa: Codex (phiếu 3A-sửa giao diện)
+Khóa: Codex (phiếu 3B tự động hóa)
 Cập nhật: 2026-11-10 bởi Claude
 
 ## Đang làm
