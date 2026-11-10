@@ -1,6 +1,6 @@
 # HANDOFF
 Khóa: trống
-Cập nhật: 2026-11-10 10:40 bởi Claude
+Cập nhật: 2026-11-10 10:35 bởi Claude
 
 ## Đang làm
 - Việc: huấn luyện để đếm đủ, chính xác số kiện BỎ VÀO bao (người dùng giao 2026-11-10). Đang chờ dữ liệu.
@@ -24,6 +24,7 @@ Cập nhật: 2026-11-10 10:40 bởi Claude
 - Máy hiện tại: không có GPU NVIDIA (Intel Graphics, 16 GB RAM) → chỉ huấn luyện mô hình nhỏ trên CPU; mô hình lớn cần máy RTX 4060 cũ.
 
 ## Chờ người dùng
-- Chọn cách lấy dữ liệu huấn luyện: duyệt trên webapp (cần `clasp push`) hay chép video + file TO vào `data/`.
+- Đã chọn: thu mẫu bằng duyệt trên webapp. `clasp push` xong 2026-11-10 10:33 (code trên GAS vốn đã trùng repo; giữ `gas/aa.js` của người dùng).
+- Chưa có deploy Web app thật (chỉ @HEAD). Chờ người dùng đồng ý deploy + chọn quyền truy cập (manifest đang ANYONE_ANONYMOUS; đề xuất DOMAIN).
 - Chọn việc tiếp theo trong "Còn lại".
 - Video + file TO thật chưa có trên máy này (`data/` trống) → chưa thử được trên dữ liệu thật.
