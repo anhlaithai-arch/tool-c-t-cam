@@ -69,6 +69,8 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
 @media (max-width:599px) { .row > button { flex:1 1 100%; width:100%; } .steps { flex-wrap:wrap; } .steps li { flex-direction:column; text-align:center; font-size:12px; gap:6px; } .step-full { display:none; } .step-short { display:inline; } }
 @media (max-width:480px) { header { padding:6px 12px; gap:8px; } header h1 { font-size:18px; } header a { font-size:12px; } .panel { padding:12px; } .ev { grid-template-columns:76px minmax(0,1fr); gap:8px; } .ev img { width:76px; height:64px; } }
 @media (prefers-reduced-motion:reduce) { * { transition:none !important; } }
+  .steps .current { font-weight: 800; }
+  .steps .current .number { border: 3px solid var(--primary); background: white; color: var(--primary); }
 </style>
 </head>
 <body data-base="<?= baseUrl ?>">
@@ -333,7 +335,7 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
   const A = window.CountingApp;
   const $ = (id) => document.getElementById(id);
   const st = { h: null, file: null, roi: null, scan: null, decisions: {}, counts: {}, abort: null, sync: null, clock: null, target: null, busy: false,
-    zone: null, mouth: null, packerBox: null, ai: {}, showAi: false, pickPeople: [] };
+    zone: null, mouth: null, packerBox: null, ai: {}, showAi: false, pickPeople: [], reviewed: {} };
 
   // ---------- tiện ích ----------
   const fmt = (s) => { if (!isFinite(s)) return '—'; const m = Math.floor(s / 60); return String(m).padStart(2, '0') + ':' + (s - m * 60).toFixed(1).padStart(4, '0'); };
@@ -345,6 +347,39 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
   function msg(id, text, cls) { const e = $(id); e.textContent = text || ''; e.className = 'msg' + (cls ? ' ' + cls : ''); }
   function store(k, v) { try { v === undefined ? localStorage.getItem(k) : localStorage.setItem(k, v); } catch (_) {} }
   function load(k) { try { return localStorage.getItem(k) || ''; } catch (_) { return ''; } }
+  function fmtWallIso(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2}:\d{2})/.exec(iso || '');
+    return m ? `${m[3]}/${m[2]}/${m[1]} ${m[4]}` : '—';
+  }
+  function fmtWallSec(sec) { return fmtWallIso(A.clock.secToIso(sec)); }
+  const clockTypes = { Float32Array, Float64Array, Uint8Array, Uint8ClampedArray, Uint16Array, Uint32Array, Int8Array, Int16Array, Int32Array };
+  function serializeClock(clock) {
+    return JSON.stringify(clock, (_, v) => ArrayBuffer.isView(v) ? { __t: v.constructor.name, a: Array.from(v) } : v);
+  }
+  function deserializeClock(text) {
+    return JSON.parse(text, (_, v) => v && Object.hasOwn(clockTypes, v.__t) && Array.isArray(v.a) ? new clockTypes[v.__t](v.a) : v);
+  }
+  function clockHelp() {
+    $('clock-label').closest('details').open = true;
+    msg('clock-msg', 'Chưa đọc được đồng hồ – gõ chữ đồng hồ trên khung hiện tại rồi bấm Đồng bộ (chỉ cần làm 1 lần, lần sau tool tự nhớ)', 'err');
+  }
+  async function syncSavedClock() {
+    const back = video.currentTime;
+    setBusy(true); video.pause();
+    try {
+      st.clock = deserializeClock(load('catcam.clock.v1'));
+      // Mẫu chữ được dùng lại; mốc giờ/ngày phải đọc từ video mới.
+      delete st.clock.anchorT; delete st.clock.anchorPrevT; delete st.clock.anchorWall;
+      st.clock.fromIndex = 0;
+      // Không giữ thứ trong tuần của video cũ khi phân tích ngày mới.
+      st.clock.grid.label = st.clock.grid.label.replace(/[A-Za-z]/g, ' ');
+      st.sync = await A.clocksync.syncClock(video, st.clock, {
+        onProgress: (i, n) => msg('clock-msg', `Đang tự đọc đồng hồ ${i}/${n}…`) });
+      if (!st.sync.segments.length) { st.sync = null; clockHelp(); }
+      else msg('clock-msg', 'Đã tự đồng bộ giờ camera theo mẫu đã học', 'okc');
+    } catch (_) { st.sync = null; clockHelp(); }
+    finally { await A.video.seek(video, back).catch(() => {}); setBusy(false); tick(); }
+  }
   const inGas = () => !!(window.google && google.script && google.script.run);
   function rpc(method, ...args) {
     return new Promise((res, rej) => {
@@ -358,6 +393,7 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
     refreshButtons();
   }
   function refreshButtons() {
+    updateSteps();
     $('pick-packer').disabled = st.busy || !st.h || !st.zone;
     $('score-ai').disabled = st.busy || !st.scan || !st.zone || !st.mouth || !st.packerBox;
     $('apply-ai').disabled = st.busy || !st.scan || !Object.keys(st.ai).length;
@@ -367,6 +403,28 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
     $('find-bag').disabled = st.busy || !st.h || !st.fms || !st.fms.scans.length;
     try { trainBtns(); } catch (_) { /* chưa khai báo lúc khởi tạo */ }
     $('clock-run').disabled = st.busy || !st.h;
+  }
+  function updateSteps() {
+    const done = [!!(st.fms && fmsPos()), !!(st.h && st.roi && st.sync?.segments.length), !$('result').hidden];
+    const current = done.indexOf(false);
+    done.forEach((d, i) => {
+      const el = $('step-' + (i + 1));
+      el.classList.toggle('done', d); el.classList.toggle('current', i === current);
+      el.querySelector('.number').textContent = d ? '✓' : String(i + 1);
+    });
+  }
+  async function autoNext() {
+    if (st.busy || !st.fms || !fmsPos() || !st.h || !st.sync?.segments.length || st.roi || st.autoTried) return;
+    st.autoTried = true;
+    try {
+      const r = await findBag();
+      if (r.ok && r.strong) await markFms();
+      else {
+        msg('mark-msg', "AI chưa chắc vùng bao – mở 'Khoanh tay' để khoanh lại rồi bấm Đánh dấu theo FMS", 'err');
+        $('draw').closest('details').open = true;
+      }
+    } catch (e) { msg('mark-msg', 'Không tự đánh dấu được: ' + e.message, 'err'); }
+    finally { refreshButtons(); }
   }
 
   // ---------- video ----------
@@ -378,7 +436,8 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
       $('video-empty').hidden = false;
       endDrawing(); stopReplay();
       Object.assign(st, { h: null, roi: null, scan: null, decisions: {}, counts: {}, sync: null, clock: null, target: null,
-        zone: null, mouth: null, packerBox: null, ai: {}, showAi: false, pickPeople: [] });
+        zone: null, mouth: null, packerBox: null, ai: {}, showAi: false, pickPeople: [], autoTried: false,
+        lastMatches: null, train: null, fmsResult: null, bagFind: null, cardBag: null, reviewed: {} });
       $('show-ai').checked = false; drawTimeline();
       $('events').replaceChildren(); $('result').hidden = true; renderStats();
       msg('video-msg', 'Đang mở video…');
@@ -389,6 +448,8 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
       msg('video-msg', `${name} · ${st.h.width}×${st.h.height} · ${fmt(st.h.durationS)}`, 'okc');
       if (!$('camera').value) { const m = /cam(?:era)?[ _-]?(\d+)/i.exec(name); if (m) $('camera').value = 'Camera ' + m[1]; }
       drawOverlay(); refreshButtons(); tick();
+      if (load('catcam.clock.v1')) await syncSavedClock(); else clockHelp();
+      await autoNext();
     } catch (e) { msg('video-msg', e.message, 'err'); }
   }
   $('file').addEventListener('change', () => { const f = $('file').files[0]; if (f) openFile(f, f.name); });
@@ -546,7 +607,7 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
     } else { st.mouth = null; setRoi({x,y,w,h}); }
   });
   function setRoi(r) {
-    st.roi = r; st.scan = null; st.ai = {}; st.target = null; $('events').replaceChildren(); renderStats(); $('result').hidden = true;
+    st.roi = r; st.scan = null; st.ai = {}; st.target = null; st.lastMatches = null; st.train = null; st.fmsResult = null; st.reviewed = {}; $('events').replaceChildren(); renderStats(); $('result').hidden = true;
     $('roi-info').textContent = 'Vùng đếm: x=' + r.x + ' y=' + r.y + ' rộng=' + r.w + ' cao=' + r.h;
     drawOverlay(); drawTimeline(); refreshButtons();
   }
@@ -719,7 +780,14 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
     }
   }
   $('only-review').addEventListener('change', renderEvents);
-  function decide(id, d) { st.decisions[id] = st.decisions[id] === d ? undefined : d; renderEvents(); if (st.target) mark(true); }
+  function decide(id, d) {
+    if (st.busy) return;
+    st.decisions[id] = st.decisions[id] === d ? undefined : d;
+    st.reviewed[id] = st.decisions[id];
+    if (st.train) for (const it of st.train.items) if (it.event?.id === id) it.label = decisionLabel(id);
+    renderEvents(); renderTrain(); renderTrainStats(); if (st.target) mark(true);
+    scheduleSamples();
+  }
   function setCount(id, d) { st.counts[id] = Math.max(1, Math.min(9, (st.counts[id] || 1) + d)); if (!st.decisions[id]) st.decisions[id] = 'accept'; renderEvents(); if (st.target) mark(true); }
   let replayStop = null, replayVersion = 0;
   function stopReplay() {
@@ -744,7 +812,7 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
   // ---------- đánh dấu đơn ----------
   $('target-now').addEventListener('click', () => { $('target').value = fmt(video.currentTime); });
   $('mark').addEventListener('click', () => mark(false));
-  function wallStr(v) { const w = st.sync && st.sync.toWall(v); return w == null ? 'giờ ?' : A.clock.secToIso(w).slice(11); }
+  function wallStr(v) { const w = st.sync && st.sync.toWall(v); return w == null ? 'giờ ?' : fmtWallSec(w).replace(/\/\d{4} /, ' '); }
   async function mark(silent) {
     st.fmsResult = null;
     const raw = $('target').value.trim();
@@ -776,7 +844,7 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
     const it = found.item;
     st.target = it; renderEvents();
     document.querySelector(`.ev[data-id="${it.id}"]`)?.scrollIntoView({ block: 'nearest' });
-    if (!it.counted) { msg('mark-msg', `Lượt gần nhất (${fmt(it.peakS)}) đang không được tính. Bấm "✓ Tính" nếu đó là kiện của đơn.`, 'err'); $('result').hidden = true; return; }
+    if (!it.counted) { msg('mark-msg', `Lượt gần nhất (${fmt(it.peakS)}) đang không được tính. Bấm "✓ Tính" nếu đó là kiện của đơn.`, 'err'); $('result').hidden = true; refreshButtons(); return; }
     const closed = $('closed').checked;
     const ord = closed ? `Kiện thứ ${it.label}/${n.total}` : `Kiện thứ ${it.label} / ${n.total} kiện đã ghi nhận — phiên chưa chốt`;
     $('res-big').textContent = ($('order').value ? $('order').value + ': ' : '') + ord;
@@ -788,6 +856,7 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
       `${$('camera').value || ''} ${fmt(it.peakS)}${st.sync ? ' ' + wallStr(it.peakS) : ''}`.trim(),
     ]);
     $('res-img').src = st.ev.marked; $('res-crop').src = st.ev.crop; $('result').hidden = false;
+    refreshButtons();
     msg('mark-msg', closed ? '' : '* phiên chưa chốt: tổng có thể còn thay đổi.');
   }
 
@@ -818,7 +887,8 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
         ...r.stations.map((s) => new Option(`${s.station} · ${s.to}`, s.station)));
       sel.disabled = false;
       const last = load(STATION_STORE);
-      if (last && r.stations.some((s) => s.station === last)) sel.value = last;
+      if (r.stations.length === 1) sel.value = r.stations[0].station;
+      else if (last && r.stations.some((s) => s.station === last)) sel.value = last;
       $('fms-api').disabled = !sel.value;
       msg('fms-msg', `Đơn ${order} qua ${r.stations.length} station có TO. Chọn station rồi bấm Export TO.`);
       if (!sel.value) sel.focus();
@@ -841,10 +911,12 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
       if (!r.ok) { msg('fms-msg', r.message, 'err'); return false; }
       setFms([r.header, ...r.rows], `FMS ${r.to}`);
       const warn = r.missingTime ? `\nThiếu giờ quét ${r.missingTime}/${r.total} đơn.` : '';
-      const range = r.first && r.last ? `\nBắt đầu đếm: ${r.first.order} (${r.first.time.slice(11, 19)}) · Dừng đếm: ${r.last.order} (${r.last.time.slice(11, 19)})` : '';
+      const range = r.first && r.last ? `\nBắt đầu đếm: ${r.first.order} (${fmtWallIso(r.first.time)}) · Dừng đếm: ${r.last.order} (${fmtWallIso(r.last.time)})` : '';
+      const day = r.first?.time ? ' ngày ' + fmtWallIso(r.first.time).split(' ')[0] : '';
       const partial = r.apiTotal > r.total ? `\nFMS báo ${r.apiTotal} đơn nhưng chỉ lấy được ${r.total}.` : '';
-      msg('fms-msg', `TO ${r.to} tại ${r.station}${r.dest ? ' → ' + r.dest : ''}: ${r.total} đơn.` +
+      msg('fms-msg', `TO ${r.to}${day} tại ${r.station}${r.dest ? ' → ' + r.dest : ''}: ${r.total} đơn.` +
         range + partial + warn, r.missingTime || r.apiTotal > r.total ? 'err' : 'okc');
+      await autoNext();
       return true;
     } catch (e) { msg('fms-msg', 'Không lấy được từ FMS: ' + (e && e.message || e), 'err'); return false; }
     finally { $('fms-api').disabled = !$('fms-station').value; }
@@ -853,12 +925,15 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
   // ---------- FMS ----------
   function setFms(table, source) { setFmsResult(A.fms.loadScans(table), source); }
   function setFmsResult(r, source) {
+    st.autoTried = false;
+    st.lastMatches = null; st.train = null; st.fmsResult = null; st.cardBag = null;
     st.fms = r.scans.length ? r : null;
     const bags = new Set(r.scans.map((x) => x.bag));
     const skipped = r.errors.length ? '\nBỏ qua: ' + r.errors.slice(0, 5).join('; ') + (r.errors.length > 5 ? '…' : '') : '';
     msg('fms-msg', r.scans.length ? `${source}: ${r.scans.length} lần quét, ${bags.size} bao.` + skipped
       : 'Không đọc được: ' + r.errors.join('; '), r.scans.length ? 'okc' : 'err');
     showFmsPos(); refreshButtons();
+    void autoNext();
   }
   $('fms-load').addEventListener('click', () => setFms(A.fms.parseTable($('fms-text').value), 'Bảng đã dán'));
   // Dán bảng (từ nút "Lấy TO" hoặc Excel) -> tự đọc ngay
@@ -898,8 +973,12 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
   $('order').addEventListener('keydown', async (e) => {
     if (e.key !== 'Enter') return;
     const has = st.fms && A.fms.orderPosition(st.fms.scans, $('order').value);
-    // FMS chặn yêu cầu từ máy chủ (chống bot) -> không tự gọi; dùng nút "Lấy TO" hoặc mở mục "Lấy qua máy chủ".
-    showFmsPos(); $('order').select();
+    if (has) showFmsPos();
+    else if (inGas()) {
+      await loadStations();
+      if ($('fms-station').value) await fetchFms();
+    } else showFmsPos();
+    refreshButtons(); await autoNext(); $('order').select();
   });
   function fmsPos() { return st.fms && $('order').value.trim() ? A.fms.orderPosition(st.fms.scans, $('order').value) : null; }
   function showFmsPos() {
@@ -918,7 +997,7 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
     if (notes.length) box.append(Object.assign(document.createElement('p'), { className: 'msg err', textContent: 'Lưu ý: ' + notes.join('; ') }));
     const ol = document.createElement('ol'); ol.style.cssText = 'max-height:160px;overflow:auto;margin:6px 0;padding-left:28px;font-size:13px';
     for (const s of p.bagScans) {
-      const li = document.createElement('li'); li.textContent = `${s.order} · ${A.clock.secToIso(s.time).slice(11)}`;
+      const li = document.createElement('li'); li.textContent = `${s.order} · ${fmtWallSec(s.time)}`;
       if (s.order === p.order) li.style.cssText = 'font-weight:700;background:#fff3b0';
       ol.append(li);
     }
@@ -943,7 +1022,7 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
   }
   $('find-bag').addEventListener('click', () => findBag());
   async function findBag() {
-    const ready = needFmsReady(); if (!ready) return false;
+    const ready = needFmsReady(); if (!ready) return { ok: false, strong: false };
     video.pause(); setBusy(true); $('prog').hidden = false; $('prog').value = 0;
     st.abort = new AbortController(); $('cancel').hidden = false;
     try {
@@ -955,14 +1034,14 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
       const strong = r.z >= 4 && r.hits >= 0.8 * r.n;
       msg('mark-msg', `AI chọn vùng x=${Math.round(r.box.x)} y=${Math.round(r.box.y)} (khung vàng): khớp ${r.hits}/${r.n} lần quét, điểm ${r.z.toFixed(1)}, lệch giờ ${r.offset >= 0 ? '+' : ''}${r.offset.toFixed(2)}s.` +
         (strong ? '' : '\nĐộ tin cậy THẤP – kiểm tra lại vùng hoặc tự khoanh miệng bao.'), strong ? 'okc' : 'err');
-      return true;
-    } catch (e) { msg('mark-msg', e.name === 'AbortError' ? 'Đã hủy.' : 'Lỗi tìm bao: ' + e.message, 'err'); return false; }
+      return { ok: true, strong };
+    } catch (e) { msg('mark-msg', e.name === 'AbortError' ? 'Đã hủy.' : 'Lỗi tìm bao: ' + e.message, 'err'); return { ok: false, strong: false }; }
     finally { $('cancel').hidden = true; $('prog').hidden = true; setBusy(false); }
   }
   $('mark-fms').addEventListener('click', markFms);
   async function markFms() {
     const ready = needFmsReady(); if (!ready) return;
-    if (!st.roi && !(await findBag())) return;
+    if (!st.roi && !(await findBag()).ok) return;
     const { p, raw, inVid, dur } = ready;
     const lo = Math.max(0, Math.min(...inVid.map((s) => s.v)) - 70), hi = Math.min(dur, Math.max(...inVid.map((s) => s.v)) + 70);
     if (!st.scan || st.scan.range.startS > lo + 1 || st.scan.range.endS < hi - 1) {
@@ -1025,13 +1104,13 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
     if (ev) { const el = document.querySelector(`.ev[data-id="${ev.id}"]`); if (el) el.scrollIntoView({ block: 'nearest' }); }
     const closed = $('closed').checked;
     $('res-big').textContent = `${p.order}: Kiện thứ ${p.index}/${p.total} trong bao ${p.bag || '?'}`;
-    $('res-meta').textContent = `Theo giờ quét FMS ${p.timeIso.replace('T', ' ')} · trong video ${fmt(videoS)}` +
+    $('res-meta').textContent = `Theo giờ quét FMS ${fmtWallIso(p.timeIso)} · trong video ${fmt(videoS)}` +
       (ev ? ` · bỏ vào bao sau quét ${mine.lagS.toFixed(1)}s` + (mine.doubt ? ' (độ trễ bất thường – CẦN KIỂM TRA)' : '') : ' · KHÔNG thấy lượt bỏ kiện rõ quanh giờ quét – ảnh là khung sau quét 2s, cần kiểm tra') +
       ` · lệch giờ camera ${offset >= 0 ? '+' : ''}${offset.toFixed(1)}s (${offsetNote})` + (closed ? '' : ' · bao chưa chốt');
     msg('mark-msg', 'Đang tạo ảnh bằng chứng…');
     st.ev = await A.counter.evidence(video, st.roi, videoS, [
       `${p.order} · ${p.index}/${p.total} · bao ${p.bag || '?'}`,
-      `${$('camera').value || ''} ${fmt(videoS)} quét ${p.timeIso.slice(11)}`.trim(),
+      `${$('camera').value || ''} ${fmt(videoS)} quét ${fmtWallIso(p.timeIso)}`.trim(),
     ]);
     st.fmsResult = { pos: p, event: ev && !mine.doubt ? ev : null, doubtEvent: ev && mine.doubt ? ev : null, videoS, lag: ev ? mine.lagS : null, offset, offsetNote };
     if (!st.target) st.target = { id: 'scan_' + p.order };
@@ -1044,6 +1123,7 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
     st.cardBag = { bag: p.bag, total: p.total, matches, dur, file: st.file, roi: st.roi };
     $('card-bag').disabled = false;
     st.train = null; renderTrain(); renderTrainStats(); trainBtns();
+    refreshButtons();
   }
 
   // ---------- cắt ảnh đơn hàng từ cam ----------
@@ -1105,6 +1185,24 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
 
   // ---------- duyệt & dữ liệu huấn luyện ----------
   st.train = null;
+  let sampleTimer = null;
+  const savedSampleIds = new Map();
+  function sampleKey(s) { return JSON.stringify([s.videoFile, s.camera, s.id]); }
+  function sampleVersion(s) { const { frames, ...meta } = s; return JSON.stringify(meta); }
+  function decisionLabel(id) {
+    return st.reviewed[id] === 'accept' ? 'bo_vao' : st.reviewed[id] === 'reject' ? 'sai' : null;
+  }
+  function scheduleSamples() {
+    if (!inGas()) return;
+    clearTimeout(sampleTimer);
+    const matches = st.lastMatches;
+    sampleTimer = setTimeout(async () => {
+      if (!matches || st.lastMatches !== matches) return;
+      if (st.busy) { scheduleSamples(); return; }
+      if (!st.train) await buildTrain();
+      if (st.train && st.lastMatches === matches) await saveSamples({ silent: true });
+    }, 8000);
+  }
   const trainBtns = () => {
     const has = !!(st.train && st.train.items.length);
     $('train-build').disabled = st.busy || !st.lastMatches || !st.roi;
@@ -1158,33 +1256,37 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
       li.append(strip);
       const acts = document.createElement('div'); acts.style.cssText = 'display:flex;gap:5px;flex-wrap:wrap';
       const btn = (txt, fn) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = txt; b.style.cssText = 'min-height:30px;padding:3px 8px;font-size:13px'; b.addEventListener('click', fn); return b; };
-      const setL = (l) => () => { it.label = it.label === l ? null : l; renderTrain(); renderTrainStats(); };
+      const setL = (l) => () => { if (st.busy) return; it.label = it.label === l ? null : l; renderTrain(); renderTrainStats(); scheduleSamples(); };
       acts.append(btn('✓ Đúng', setL('bo_vao')), btn('✗ Sai', setL('sai')), btn('? Không rõ', setL('khong_ro')),
         btn('Xem lại', () => { if (t != null) replay({ startS: t - 0.8, endS: t + 0.6 }); }),
         btn('Sửa = khung đang xem', async () => {
+          if (st.busy) return;
           video.pause(); it.tS = video.currentTime; it.label = 'bo_vao';
-          await trainFrames(it); video.currentTime = it.tS; renderTrain(); renderTrainStats();
+          await trainFrames(it); video.currentTime = it.tS; renderTrain(); renderTrainStats(); scheduleSamples();
         }));
       li.append(acts); ul.append(li);
     }
   }
-  $('train-build').addEventListener('click', async () => {
-    if (!st.lastMatches) return;
-    setBusy(true);
+  async function buildTrain() {
+    if (st.busy || !st.lastMatches || !st.fmsResult) return;
+    const back = video.currentTime;
+    video.pause(); setBusy(true);
     try {
-      st.train = { items: st.lastMatches.map((m) => ({ order: m.order, index: m.index, v: m.v, event: m.event, lagS: m.lagS, doubt: m.doubt, label: null, tS: null })) };
+      st.train = { items: st.lastMatches.map((m) => ({ order: m.order, index: m.index, v: m.v, event: m.event, lagS: m.lagS, doubt: m.doubt, label: m.event ? decisionLabel(m.event.id) : null, tS: null })) };
       for (let i = 0; i < st.train.items.length; i++) {
         msg('train-msg', `Đang cắt ảnh ${i + 1}/${st.train.items.length}…`);
         await trainFrames(st.train.items[i]);
       }
       msg('train-msg', 'Duyệt từng đơn rồi bấm Lưu.', 'okc');
       renderTrain(); renderTrainStats();
-    } catch (e) { msg('train-msg', 'Lỗi: ' + e.message, 'err'); }
-    finally { setBusy(false); trainBtns(); }
-  });
+    } catch (e) { st.train = null; msg('train-msg', 'Lỗi: ' + e.message, 'err'); }
+    finally { await A.video.seek(video, back).catch(() => {}); setBusy(false); trainBtns(); }
+  }
+  $('train-build').addEventListener('click', buildTrain);
   $('train-allok').addEventListener('click', () => {
     for (const it of st.train.items) if (!it.label && (it.event || it.tS != null) && !it.doubt) it.label = 'bo_vao';
     renderTrain(); renderTrainStats();
+    scheduleSamples();
   });
   async function collectSamples() {
     const meta = trainMeta();
@@ -1206,23 +1308,27 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
     }
     return samples;
   }
-  $('train-save').addEventListener('click', async () => {
-    setBusy(true);
+  async function saveSamples({ silent }) {
+    if (st.busy || !st.train || !inGas()) return;
+    const back = video.currentTime;
+    video.pause(); setBusy(true);
     try {
       msg('train-msg', 'Đang chuẩn bị ảnh mẫu…');
-      const samples = await collectSamples();
-      if (!samples.length) { msg('train-msg', 'Chưa có đơn nào được duyệt.', 'err'); return; }
+      const samples = (await collectSamples()).filter((s) => savedSampleIds.get(sampleKey(s)) !== sampleVersion(s));
+      if (!samples.length) { msg('train-msg', silent ? 'Đã tự lưu 0 mẫu cho AI học' : 'Chưa có mẫu mới được duyệt để lưu.'); return; }
       let done = 0;
       for (const s of samples) {
         const { frames, ...meta } = s;
         await rpc('uiSaveTrainingSample', meta, frames.map((d, i) => ({ name: 'f' + i, base64: d.split(',')[1] })));
+        savedSampleIds.set(sampleKey(s), sampleVersion(s));
         msg('train-msg', `Đã lưu ${++done}/${samples.length} mẫu…`);
       }
-      const stats = await rpc('uiTrainingStats').catch(() => null);
-      msg('train-msg', `Đã lưu ${samples.length} mẫu.` + (stats ? ` Tổng trên webapp: ${stats.total} (đúng ${stats.bo_vao}, sai ${stats.sai}, không có kiện ${stats.khong_kien}).` : ''), 'okc');
+      const stats = silent ? null : await rpc('uiTrainingStats').catch(() => null);
+      msg('train-msg', silent ? `Đã tự lưu ${done} mẫu cho AI học` : `Đã lưu ${done} mẫu.` + (stats ? ` Tổng trên webapp: ${stats.total} (đúng ${stats.bo_vao}, sai ${stats.sai}, không có kiện ${stats.khong_kien}).` : ''), 'okc');
     } catch (e) { msg('train-msg', 'Không lưu được: ' + (e && e.message || e) + '\nCó thể bấm "Tải file mẫu về máy" rồi gửi file.', 'err'); }
-    finally { setBusy(false); trainBtns(); }
-  });
+    finally { await A.video.seek(video, back).catch(() => {}); setBusy(false); trainBtns(); }
+  }
+  $('train-save').addEventListener('click', () => saveSamples({ silent: false }));
   $('train-dl').addEventListener('click', async () => {
     setBusy(true);
     try {
@@ -1308,19 +1414,22 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
 
   // ---------- đồng bộ giờ ----------
   $('clock-run').addEventListener('click', async () => {
+    if (st.busy) return;
     const label = $('clock-label').value.trim(); if (!label) { msg('clock-msg', 'Gõ chữ đồng hồ trên khung hiện tại.', 'err'); return; }
-    video.pause(); setBusy(true); const at = video.currentTime;
+    video.pause(); st.sync = null; setBusy(true); const at = video.currentTime;
     try {
       msg('clock-msg', 'Đang học chữ số đồng hồ…');
       st.clock = await A.clocksync.learnClock(video, label, at);
+      store('catcam.clock.v1', serializeClock(st.clock));
       msg('clock-msg', 'Đang đọc đồng hồ dọc video…');
       st.sync = await A.clocksync.syncClock(video, st.clock, { onProgress: (i, n) => msg('clock-msg', `Đang đọc đồng hồ ${i}/${n}…`) });
       const d = st.sync.describe();
-      msg('clock-msg', d.map((g, i) => `Đoạn ${i + 1}: ${fmt(g.videoStart)}–${fmt(g.videoEnd)} = ${g.wallStart.replace('T', ' ')} → ${g.wallEnd.slice(11)} (±${g.uncertainty.toFixed(2)}s)`).join('\n') +
+      msg('clock-msg', d.map((g, i) => `Đoạn ${i + 1}: ${fmt(g.videoStart)}–${fmt(g.videoEnd)} = ${fmtWallIso(g.wallStart)} → ${fmtWallIso(g.wallEnd)} (±${g.uncertainty.toFixed(2)}s)`).join('\n') +
         (st.sync.warnings.length ? '\nCảnh báo: ' + st.sync.warnings.join('; ') : ''), st.sync.segments.length ? 'okc' : 'err');
       video.currentTime = at; renderEvents();
     } catch (e) { msg('clock-msg', e.message, 'err'); }
-    finally { setBusy(false); }
+    finally { await A.video.seek(video, at).catch(() => {}); setBusy(false); tick(); }
+    await autoNext();
   });
 
   // ---------- liên kết & chế độ dev ----------
@@ -1331,6 +1440,7 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
     fetch(q.get('src')).then((r) => r.blob()).then((b) => openFile(b, q.get('src').split('/').pop()));
     if (q.get('fms')) fetch(q.get('fms')).then((r) => r.text()).then((t) => { $('fms-text').value = t; setFms(A.fms.parseTable(t), q.get('fms').split('/').pop()); });
   }
+  refreshButtons();
   window.__dem = { st, setRoi, setFms, markFms, findBag, collectSamples }; // để kiểm thử tự động
 })();
 </script>
