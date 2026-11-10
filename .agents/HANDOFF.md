@@ -14,6 +14,7 @@ Cập nhật: 2026-11-10 bởi Claude
   5. Việc tồn cũ: cam A, vùng đếm bám bao, trừ 1 khi lấy ra.
 
 ## Quyết định đã chốt
+- HƯỚNG DÀI HẠN (bắt buộc theo): docs/MUC_TIEU_AI.md – mô hình AI tự huấn luyện đếm mọi góc camera, kết quả cuối 100% (AI chắc thì tự quyết, không chắc bắt buộc người duyệt).
 - Video xử lý trong trình duyệt, không upload; GAS chỉ xác thực, lưu Sheet/Drive.
 - Giờ quay lấy từ đồng hồ in trên hình (OCR), không dùng tên/ngày file.
 - FMS chặn API gọi thẳng từ GAS (403) → gọi qua Worker `https://catcam.laithaianhcn59vnua.workers.dev/` (Script Property WORKER_URL ghi đè), bản `tracking-station-outbound-v1`. Bookmarklet / file .xlsx là cách dự phòng.
