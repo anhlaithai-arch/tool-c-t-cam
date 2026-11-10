@@ -2,7 +2,7 @@
 
 Bắn mã đơn → lấy thời gian packing từ webapp GAS → tua đúng đoạn video camera → khoanh vùng miệng bao → đếm và đánh dấu kiện, xuất bằng chứng.
 
-Quy trình làm việc giữa Claude Code và Codex: xem [AGENTS.md](AGENTS.md).
+**Bắt đầu từ [docs/TONG_HOP.md](docs/TONG_HOP.md)** (tổng hợp dự án, kết quả, việc còn dở). Quy trình làm việc: [AGENTS.md](AGENTS.md).
 
 ## Cấu trúc
 
