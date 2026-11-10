@@ -21,6 +21,17 @@
 | Kiện chỉ di chuyển ngoài miệng bao (đống hàng, sàn, bao bên cạnh) | 0 – không liệt kê |
 | Không chắc (bị che, không thấy tay, nhiều kiện một lúc) | không tự tính – "cần kiểm tra" |
 
+## Chỉ người đóng được bỏ hàng vào bao (người dùng chốt 2026-11-10)
+
+- Khi đã xác định người đóng TO, **chỉ người đó được bỏ hàng vào bao**.
+- AI phải theo dõi **mọi người xung quanh** (cả khung hình, không chỉ ô xét), không chỉ người đóng.
+- Lượt có vật vào bao mà **không phải từ tay người đóng** → **không tính**, gắn **CẢNH BÁO** để người duyệt xem:
+  - "Người khác bỏ hàng vào bao": cổ tay người khác đi sát miệng bao.
+  - "Nghi người khác ném hàng vào bao": cổ tay người khác vung nhanh về phía bao trước lượt.
+  - "Hàng rơi/bay vào bao, không thấy tay ai": có vật vào miệng bao, không cổ tay nào gần.
+- Cảnh báo hiện đỏ trong danh sách lượt, trên dải thời gian và trong kết quả TO (số cảnh báo).
+- Ví dụ thật: TO2026102219TA2 (22/10/2026, Camera 01) – người đóng là chị áo phản quang vàng (SKT VINA) ngồi giữa phòng, bao xanh bên phải chị; xung quanh có ít nhất 5 người khác cùng làm việc.
+
 Thứ tự kiện ("kiện thứ N") tính theo **số dư** sau các lượt +1/−1 đã xác nhận, theo thời gian.
 
 ## Cần từ mô hình
