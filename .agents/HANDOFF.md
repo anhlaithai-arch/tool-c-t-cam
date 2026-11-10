@@ -1,5 +1,5 @@
 # HANDOFF
-Khóa: trống
+Khóa: Codex (phiếu 5 cảnh báo người khác)
 Cập nhật: 2026-11-10 bởi Claude
 
 ## Đang làm
