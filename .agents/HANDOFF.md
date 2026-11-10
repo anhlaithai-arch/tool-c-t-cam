@@ -1,11 +1,11 @@
 # HANDOFF
-Khóa: trống
-Cập nhật: 2026-11-10 10:45 bởi Claude
+Khóa: Codex
+Cập nhật: 2026-11-10 11:30 bởi Claude
 
 ## Đang làm
-- Việc: huấn luyện để đếm đủ, chính xác số kiện BỎ VÀO bao (người dùng giao 2026-11-10). Đang chờ dữ liệu.
-- File đang sửa: không
-- Đã xong: máy mới `C:\Users\anh.laithai\projects\TOOL-CAT-CAM` đã clone, `npm install`, build, test JS 39/39, Python `.venv` (3.13) pytest 12/12.
+- Việc (ưu tiên, người dùng giao 11:10): lấy TO qua Cloudflare Worker — mã đơn → Load station (API 1) → Export TO (API 2) → bảng FMS; đơn quét đầu = bắt đầu đếm, đơn quét cuối = dừng. Sau đó: huấn luyện đếm bỏ vào (đang chờ dữ liệu).
+- File đang sửa: `gas/Dem.html` (Codex, phiếu `.agents/task.md`: phần A giao diện Load station/Export TO, phần B nút tải toàn bộ mẫu)
+- Đã xong: server Worker `uiFmsStations`/`uiFmsFetch` + test (2375c07); `app/tools/train_drop.py` + `uiExportTrainingSamples` trong `gas/Code.js` (9bf7ce2); webapp deploy @2; máy mới `C:\Users\anh.laithai\projects\TOOL-CAT-CAM` đã clone, `npm install`, build, test JS 39/39, Python `.venv` (3.13) pytest 12/12.
 - Còn lại (việc tồn, theo `docs/TONG_HOP.md`):
   1. Thu mẫu đã duyệt (✓/✗) từ nhiều TO → `app/tools/build_dataset.py` → huấn luyện bộ phân loại nhỏ (3 khung ±0,4s) → ONNX chạy trong trình duyệt để chấm lại lượt → đo trên TO chưa dùng để huấn luyện.
   2. Dùng thêm cam A.
@@ -15,7 +15,7 @@ Cập nhật: 2026-11-10 10:45 bởi Claude
 ## Quyết định đã chốt
 - Video xử lý trong trình duyệt, không upload; GAS chỉ xác thực, lưu Sheet/Drive.
 - Giờ quay lấy từ đồng hồ in trên hình (OCR), không dùng tên/ngày file.
-- FMS chặn API từ máy chủ GAS (403) → lấy TO bằng bookmarklet "📋 Lấy TO" hoặc file .xlsx.
+- FMS chặn API gọi thẳng từ GAS (403) → gọi qua Worker `https://catcam.laithaianhcn59vnua.workers.dev/` (Script Property WORKER_URL ghi đè), bản `tracking-station-outbound-v1`. Bookmarklet / file .xlsx là cách dự phòng.
 - `gas/LogicBundle.html` chỉ sinh bằng `npm run build`.
 
 ## Quyết định đã chốt (thêm)
