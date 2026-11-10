@@ -43,6 +43,8 @@
   #events { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; max-height: 70vh; overflow: auto; }
   .ev { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 10px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; }
   .ev.target { outline: 3px solid var(--hl); }
+  .ev.ai-warning, .badge.ai-warning { background: var(--badbg); }
+  .badge.ai-warning { color: var(--bad); }
   .ev img { width: 120px; height: 90px; object-fit: cover; border-radius: 5px; background: var(--bg); cursor: pointer; }
   .ev .head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
   .ev .num { font-weight: 750; font-size: 17px; }
@@ -509,8 +511,8 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
       if (close) { c.closePath(); c.fillStyle = '#3fa9ff28'; c.fill(); }
       c.strokeStyle = color; c.lineWidth = 2; c.stroke();
     };
-    const person = (p, selected) => {
-      c.strokeStyle = c.fillStyle = selected ? '#39e675' : '#a0a6ad'; c.lineWidth = selected ? 4 : 2;
+    const person = (p, selected, warned = false) => {
+      c.strokeStyle = c.fillStyle = warned ? '#ff4545' : selected ? '#39e675' : '#a0a6ad'; c.lineWidth = selected || warned ? 4 : 2;
       const k = p.kps || [];
       for (const [a,b] of A.pose.SKELETON) if (k[a]?.[2] >= .3 && k[b]?.[2] >= .3) {
         c.beginPath(); c.moveTo(...xy(k[a])); c.lineTo(...xy(k[b])); c.stroke();
@@ -538,8 +540,21 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
       if (ev) {
         const {res,frames} = st.ai[ev.id];
         const frame = frames.reduce((best,f) => !best || Math.abs(f.t-video.currentTime)<Math.abs(best.t-video.currentTime) ? f : best, null);
-        for (const p of frame?.people || []) person(p, res.who != null && p.id === res.who);
-        path(res.trail || [], '#ff4545'); c.fillStyle = '#ff4545';
+        let packerId = null;
+        for (const f of frames) {
+          let overlap = .1;
+          for (const p of f.people) {
+            const a = p.box, b = st.packerBox;
+            if (!b) continue;
+            const intersection = Math.max(0,Math.min(a.x2,b.x2)-Math.max(a.x1,b.x1))*Math.max(0,Math.min(a.y2,b.y2)-Math.max(a.y1,b.y1));
+            const union = (a.x2-a.x1)*(a.y2-a.y1)+(b.x2-b.x1)*(b.y2-b.y1)-intersection;
+            if (union > 0 && intersection/union > overlap) { overlap = intersection/union; packerId = p.id; }
+          }
+          if (packerId != null) break;
+        }
+        for (const p of frame?.people || []) person(p, p.id === packerId, res.kind !== 'packer' && res.who != null && p.id === res.who);
+        const trailColor = res.kind === 'packer' ? '#39e675' : '#ff4545';
+        path(res.trail || [], trailColor); c.fillStyle = trailColor;
         for (const p of res.trail || []) { c.beginPath(); c.arc(...xy(p),3,0,Math.PI*2); c.fill(); }
         const lines = ['Lượt #' + (items.indexOf(ev)+1) + ' · AI: ' + aiLabel(res) + ' · tin cậy ' + res.score.toFixed(2), ...res.reasons];
         c.font = '13px system-ui';
@@ -645,7 +660,7 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
       await loadPose();
       for (const [i,ev] of st.scan.events.entries()) {
         signal.throwIfAborted(); msg('scan-msg', 'AI đang chấm lượt ' + (i+1) + '/' + st.scan.events.length + '…');
-        const frames = await A.posemodel.posesAround(video,st.zone,ev.peakS,{winS:.8,n:10,signal});
+        const frames = await A.posemodel.posesAround(video,{x:0,y:0,w:st.h.width,h:st.h.height},ev.peakS,{winS:1.5,n:12,signal});
         signal.throwIfAborted();
         const res = A.attrib.attribute({t:ev.peakS,kind:ev.kind},frames,{packerBox:st.packerBox,mouth:st.mouth});
         st.ai[ev.id] = {res,frames}; $('prog').value = (i+1)/st.scan.events.length;
@@ -663,6 +678,7 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
     updateProb();
     for (const ev of st.scan.events) {
       const res = st.ai[ev.id]?.res;
+      if (res?.warning) { st.decisions[ev.id] = 'reject'; continue; }
       if (st.decisions[ev.id] !== undefined) continue;
       if (st.model) {
         const p = st.prob[ev.id];
@@ -690,7 +706,7 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
     for (const ev of st.scan.events) {
       const res = st.ai[ev.id]?.res;
       c.beginPath(); c.arc(Math.max(4,Math.min(w-4,x(ev.peakS))),12,4,0,Math.PI*2);
-      if (res) { c.fillStyle = res.decision === 1 ? '#39e675' : res.decision === 0 ? '#949ba4' : '#ffa43b'; c.fill(); }
+      if (res) { c.fillStyle = res.warning ? '#ff4545' : res.decision === 1 ? '#39e675' : res.decision === 0 ? '#949ba4' : '#ffa43b'; c.fill(); }
       c.strokeStyle = '#fff'; c.stroke();
     }
     c.strokeStyle = '#fff'; c.beginPath(); c.moveTo(x(video.currentTime),0); c.lineTo(x(video.currentTime),h); c.stroke();
@@ -734,25 +750,50 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
   $('cancel').addEventListener('click', () => st.abort && st.abort.abort());
 
   function numbered() { return A.motion.numberEvents(st.scan ? st.scan.events : [], st.decisions, st.counts); }
+  function resultWarnings() {
+    let events = st.scan?.events || [];
+    if (st.fmsResult) {
+      const scans = scansInVideo(st.fmsResult.pos).inVid;
+      const times = scans.map((s) => s.v + st.fmsResult.offset);
+      if (!times.length) events = [];
+      else {
+        for (const ev of events) if (st.fmsMatch?.[ev.id]) times.push(ev.peakS);
+        const start = Math.min(...times), end = Math.max(...times);
+        events = events.filter((ev) => ev.peakS >= start && ev.peakS <= end);
+      }
+    }
+    const count = events.filter((ev) => st.ai[ev.id]?.res.warning).length;
+    return count ? `⚠ ${count} lượt có người khác bỏ/ném/rơi hàng vào bao – cần xem lại` : '';
+  }
+  function renderResultWarnings() {
+    let line = $('res-meta').querySelector('[data-ai-warnings]');
+    const text = resultWarnings();
+    if (!text) { line?.remove(); return; }
+    if (!line) { line = document.createElement('div'); line.dataset.aiWarnings = ''; line.className = 'err'; $('res-meta').append(line); }
+    line.textContent = text;
+  }
   function renderStats() {
     const s = $('stats'); s.replaceChildren();
     if (!st.scan) { s.append(Object.assign(document.createElement('span'), { className: 'muted', textContent: 'Chưa đếm.' })); return; }
     const n = numbered();
     const pend = n.items.filter((i) => i.decision === 'pending').length;
-    const add = (label, v) => { const sp = document.createElement('span'); sp.append(label + ': '); sp.append(Object.assign(document.createElement('b'), { textContent: v })); s.append(sp); };
+    const add = (label, v, bad = false) => { const sp = document.createElement('span'); if (bad) sp.className = 'err'; sp.append(label + ': '); sp.append(Object.assign(document.createElement('b'), { textContent: v })); s.append(sp); };
     const review = n.items.filter((i) => i.kind !== 'drop' && i.decision === 'pending').length;
     add('Số kiện đang tính', n.total); add('Lượt nghi vấn', n.items.length); add('Cần xem lại', review); add('Chưa duyệt', pend);
+    const warnings = n.items.filter((it) => st.ai[it.id]?.res.warning).length;
+    add('Cảnh báo', warnings, warnings > 0);
   }
   function renderEvents() {
     updateProb();
-    renderStats(); drawTimeline(); refreshButtons();
+    renderStats(); drawTimeline(); refreshButtons(); renderResultWarnings();
     const ul = $('events'); ul.replaceChildren();
     if (!st.scan) return;
     const n = numbered();
     const onlyReview = $('only-review').checked;
     for (const it of n.items) {
-      if (onlyReview && it.kind === 'drop' && it.decision === 'pending') continue;
-      const li = document.createElement('li'); li.className = 'ev' + (st.target && st.target.id === it.id ? ' target' : '');
+      const warning = st.ai[it.id]?.res.warning;
+      if (onlyReview && !warning && it.kind === 'drop' && it.decision === 'pending') continue;
+      const li = document.createElement('li'); li.className = 'ev' + (warning ? ' ai-warning' : '') + (st.target && st.target.id === it.id ? ' target' : '');
       li.dataset.id = it.id;
       const img = document.createElement('img'); img.alt = 'Lượt lúc ' + fmt(it.peakS); img.dataset.thumb = it.id;
       if (st.thumbs && st.thumbs[it.id]) img.src = st.thumbs[it.id];
@@ -768,6 +809,8 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
       badge.className = 'badge ' + (it.decision === 'accept' ? 'b-acc' : it.decision === 'reject' ? 'b-rej' : it.kind === 'drop' ? 'b-pend' : 'b-occ');
       badge.textContent = it.decision === 'accept' ? 'Đã xác nhận' : it.decision === 'reject' ? 'Đã bỏ' : it.kind === 'occlusion' ? 'Nghi người che' : it.kind === 'weak' ? 'Cần kiểm tra' : 'AI đề xuất';
       head.append(badge);
+      if (warning) head.append(Object.assign(document.createElement('span'), {
+        className: 'badge ai-warning', textContent: '⚠ ' + st.ai[it.id].res.reasons[0] }));
       body.append(head);
       if (Number.isFinite(st.prob[it.id])) body.append(Object.assign(document.createElement('div'), {
         className: 'muted', textContent: `AI học: ${Math.round(st.prob[it.id] * 100)}%` }));
@@ -781,13 +824,13 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
       if (st.ai[it.id]) {
         const {res} = st.ai[it.id];
         body.append(Object.assign(document.createElement('div'), {
-          className: res.decision === 1 ? 'okc' : res.decision === 0 ? 'muted' : 'err',
+          className: res.warning ? 'err' : res.decision === 1 ? 'okc' : res.decision === 0 ? 'muted' : 'err',
           textContent: `AI: ${aiLabel(res)} (${res.score.toFixed(2)}) – ${res.reasons.join('; ')}`
         }));
         acts.append(btn('Xem AI', () => {
           if (st.busy) return;
           st.showAi = true; $('show-ai').checked = true;
-          replay({startS: it.peakS - .8, endS: it.peakS + .5}, true);
+          replay({startS: it.peakS - 1.5, endS: it.peakS + .5}, true);
         }));
       }
       const cnt = document.createElement('span'); cnt.className = 'cnt';
@@ -868,6 +911,7 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
     $('res-big').textContent = ($('order').value ? $('order').value + ': ' : '') + ord;
     $('res-meta').textContent = `${$('camera').value || 'Camera ?'} · trong video ${fmt(it.peakS)}${st.sync ? ' · giờ camera ' + wallStr(it.peakS) : ''}` +
       (found.distS > 0 ? ` · cách vị trí đã nhập ${found.distS.toFixed(1)}s` : '') + (it.decision === 'accept' ? ' · đã xác nhận' : ' · AI đề xuất, chưa duyệt');
+    renderResultWarnings();
     msg('mark-msg', silent ? '' : 'Đang tạo ảnh bằng chứng…');
     st.ev = await A.counter.evidence(video, st.roi, it.peakS, [
       ($('order').value || 'Đơn ?') + ' · ' + (closed ? `${it.label}/${n.total}` : `${it.label}/${n.total}*`),
@@ -1133,6 +1177,7 @@ details { margin-top:16px; padding-top:12px; border-top:1px solid var(--border);
       `${$('camera').value || ''} ${fmt(videoS)} quét ${fmtWallIso(p.timeIso)}`.trim(),
     ]);
     st.fmsResult = { pos: p, event: ev && !mine.doubt ? ev : null, doubtEvent: ev && mine.doubt ? ev : null, videoS, lag: ev ? mine.lagS : null, offset, offsetNote };
+    renderResultWarnings();
     if (!st.target) st.target = { id: 'scan_' + p.order };
     $('res-img').src = st.ev.marked; $('res-crop').src = st.ev.crop; $('result').hidden = false;
     const matched = matches.filter((m) => m.event).length;

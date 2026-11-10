@@ -3,6 +3,7 @@ export const FEATURES = Object.freeze([
   'durS', 'peakAct', 'meanAct', 'kindDrop', 'kindOcc', 'kindWeak',
   'parcelPeak', 'aiPos', 'aiNeg', 'aiUnk', 'aiScore', 'aiHasTrail',
   'fmsLagAbs', 'fmsMatched', 'fmsDoubt',
+  'aiOther', 'aiThrow', 'aiFall', 'aiWarn',
 ]);
 const finite = (v) => Number.isFinite(v) ? v : 0;
 const sigmoid = (z) => z >= 0 ? 1 / (1 + Math.exp(-z)) : Math.exp(z) / (1 + Math.exp(z));
@@ -22,7 +23,8 @@ export function eventFeatures({ ev, scan, ai, match }) {
     +(ev.kind === 'drop'), +(ev.kind === 'occlusion'), +(ev.kind === 'weak'), parcel,
     +(!!res && res.decision === 1), +(!!res && res.decision === 0), +(!!res && res.decision == null),
     res?.score, +(!!res?.trail?.length), match ? Math.min(10, Math.abs(finite(match.lag))) : 10,
-    +!!match, +!!match?.doubt].map(finite);
+    +!!match, +!!match?.doubt, +(res?.kind === 'other'), +(res?.kind === 'throw'),
+    +(res?.kind === 'fall'), +!!res?.warning].map(finite);
 }
 
 export function labelOf(label) {

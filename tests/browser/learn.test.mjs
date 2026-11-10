@@ -19,16 +19,30 @@ test('eventFeatures: thứ tự, one-hot, cửa sổ thời gian và giá trị 
     scan: { times: [0, 1, 1.5, 2, 3], act: [99, 0.2, 0.6, 0.4, 99], parcel: [99, 0.1, 0.8, 0.2, 99] },
     ai: { res: { decision: null, score: 0.3, trail: [[1, 2]] } }, match: { lag: -12, doubt: true } });
   assert.equal(x.length, FEATURES.length);
+  assert.equal(FEATURES.length, 19);
   assert.ok(x.every(Number.isFinite));
   assert.equal(x[0], 1); assert.equal(x[1], 0.6); assert.ok(Math.abs(x[2] - 0.4) < 1e-10);
-  assert.deepEqual(x.slice(3), [0, 1, 0, 0.8, 0, 0, 1, 0.3, 1, 10, 1, 1]);
+  assert.deepEqual(x.slice(3), [0, 1, 0, 0.8, 0, 0, 1, 0.3, 1, 10, 1, 1, 0, 0, 0, 0]);
   const absent = eventFeatures({ ev: { kind: 'weak' } });
   assert.ok(absent.every(Number.isFinite));
   assert.deepEqual(absent.slice(7, 10), [0, 0, 0]);
-  assert.deepEqual(absent.slice(12), [10, 0, 0]);
+  assert.deepEqual(absent.slice(12), [10, 0, 0, 0, 0, 0, 0]);
   assert.deepEqual(vector(0.8, true).slice(7, 10), [1, 0, 0]);
   assert.deepEqual(vector(0.1, false).slice(7, 10), [0, 1, 0]);
   assert.deepEqual(['bo_vao', 'sai', 'khong_kien', 'khong_ro', undefined].map(labelOf), [1, 0, 0, null, null]);
+});
+
+test('warning features encode other, throw, fall and ambiguous warnings independently', () => {
+  assert.deepEqual(FEATURES.slice(-4), ['aiOther', 'aiThrow', 'aiFall', 'aiWarn']);
+  for (const [kind, warning, expected] of [
+    ['packer', false, [0,0,0,0]], ['other', true, [1,0,0,1]],
+    ['throw', true, [0,1,0,1]], ['fall', true, [0,0,1,1]],
+    ['unknown', true, [0,0,0,1]], ['unknown', false, [0,0,0,0]],
+  ]) {
+    assert.deepEqual(eventFeatures({ev: {}, ai: {res: {kind, warning}}}).slice(-4), expected);
+  }
+  const legacy = {features: FEATURES.slice(0,15)};
+  assert.throws(() => predict(legacy, vector(0.8,true)), /Mô hình cũ, hãy huấn luyện lại/);
 });
 
 test('train: dữ liệu tách được, predict đơn điệu, xác định và học lại toàn bộ', () => {
@@ -61,7 +75,9 @@ test('train: ít mẫu, một lớp, vector sai và fallback kiểm tra 20% cu�
 test('GAS: nâng tiêu đề cũ, phân trang đặc trưng không đọc Drive, lưu/đọc mô hình', () => {
   const headers = ['id', 'label', 'corrected', 'bag', 'order', 'index', 'camera', 'videoFile', 'videoTimeS', 'scanVideoS', 'roi', 'signal', 'offset', 'files', 'reviewer', 'updatedAt'];
   const row = (id, label, features) => [id, label, '', 'bag', '', '', '', '', '', '', '', '', '', '', '', '', features];
-  const rows = [headers, row('a', 'bo_vao', JSON.stringify(vector(0.8, true))), row('b', 'khong_ro', JSON.stringify(vector(0.2, false))), row('c', 'sai', 'invalid'), row('d', 'sai', JSON.stringify(vector(0.1, false)))];
+  // Code.js nhận vector đủ FEATURES.length (19) đặc trưng.
+  const legacyVector = (peak, positive) => vector(peak, positive);
+  const rows = [headers, row('a', 'bo_vao', JSON.stringify(legacyVector(0.8, true))), row('b', 'khong_ro', JSON.stringify(legacyVector(0.2, false))), row('c', 'sai', 'invalid'), row('d', 'sai', JSON.stringify(legacyVector(0.1, false)))];
   const sheet = {
     getLastColumn: () => headers.length, getLastRow: () => rows.length,
     getRange: (r, c, n = 1, d = 1) => ({ getValues: () => rows.slice(r - 1, r - 1 + n).map((v) => Array.from({ length: d }, (_, j) => v[c - 1 + j] ?? '')),
