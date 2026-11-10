@@ -1,5 +1,5 @@
 # HANDOFF
-Khóa: Codex (phiếu 5 cảnh báo người khác)
+Khóa: trống
 Cập nhật: 2026-11-10 bởi Claude
 
 ## Đang làm
@@ -8,7 +8,7 @@ Cập nhật: 2026-11-10 bởi Claude
 - Đã xong: lõi pose/attrib (4076999); giao diện Hướng 2 + Xem AI (7b51895); giao diện mới 3 bước tông xanh + mục Nâng cao (1c8a43e); tự chạy cả chuỗi + ngày giờ + tự lưu mẫu ✓/✗ (phiếu 3B). npm test 55 đạt. Phiếu 4 AI tự học (logistic trên đặc trưng lượt, nút Huấn luyện AI, mô hình lưu Script Property DROP_MODEL + sheet MoHinh) bccb97a; RTMO đổi sang BGR 25e9ce1. npm test 59 đạt.
 - Còn lại:
   1. Video thật: data/videos/record_2026-11-10_19-25-22.mp4 (Camera 01, OSD 22/10/2026 17:42:39, 15 phút) + data/to/transport_list_1794316369.xlsx (TO2026102219TA2, 55 đơn, 17:46:16–17:48:43). RTMO chạy đúng (BGR). Dò nhịp chuyển động × giờ quét: người đóng nhiều khả năng = chị áo phản quang vàng SKT VINA ngồi giữa, bao xanh bên phải (z=6.0, lệch +2,5s) – CHỜ người dùng xác nhận. Tiếp: chạy cả chuỗi webapp trên video này, đo AI chọn đúng người + đếm đủ 55.
-  2. attrib.mjs: người đóng chỉ tìm ở khung ĐẦU của cửa sổ 0,8s; nếu khung đầu không thấy thì ra "cần duyệt" – nên tìm ở khung đầu tiên có người trùng packerBox.
+  2. Phiếu 5 xong: chỉ người đóng được bỏ hàng, cảnh báo người khác bỏ/ném/rơi (docs/QUY_TAC_DEM.md). Người dùng XÁC NHẬN người đóng TO2026102219TA2 = chị áo vàng SKT VINA. Ngưỡng ném throwSpeed=900px/s chưa đo trên video thật.
   3. Phiếu 3: Hướng 1 (neo giờ đơn đầu → tìm bao + người đóng tự động).
   4. Phiếu 4: huấn luyện lớp cuối trên webapp.
   5. Việc tồn cũ: cam A, vùng đếm bám bao, trừ 1 khi lấy ra.
