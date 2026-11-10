@@ -1,7 +1,7 @@
 import { letterbox, decode, track } from './core/pose.mjs';
 import { seek } from './video.mjs';
 
-const CHANNELS = 'RGB';
+const CHANNELS = 'BGR'; // RTMO (mmpose) học trên ảnh BGR: thử trên video kho 22/10 cho điểm tin cậy cao hơn RGB
 const CDN = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/';
 const MODEL = 'https://huggingface.co/Xenova/RTMO-m/resolve/main/onnx/model_int8.onnx';
 let sessionPromise = null, runtimePromise = null;
