@@ -22,6 +22,7 @@ var CountingApp = (() => {
   // browser/entry.mjs
   var entry_exports = {};
   __export(entry_exports, {
+    attrib: () => attrib_exports,
     bagfinder: () => bagfinder_exports,
     bookmarklet: () => fms_bookmarklet_exports,
     clock: () => clock_exports,
@@ -30,6 +31,8 @@ var CountingApp = (() => {
     fms: () => fms_exports,
     motion: () => motion_exports,
     ordercard: () => ordercard_exports,
+    pose: () => pose_exports,
+    posemodel: () => posemodel_exports,
     rhythm: () => rhythm_exports,
     sync: () => sync_exports,
     trainset: () => trainset_exports,
@@ -1357,7 +1360,7 @@ var CountingApp = (() => {
     }
     return out;
   }
-  function estimateOffset(scanV, events, { lo = -180, hi = 180, step = 0.5, window = 6 } = {}) {
+  function estimateOffset(scanV, events, { lo = -180, hi = 180, step = 0.5, window: window2 = 6 } = {}) {
     const peaks = events.map((e) => e.peakS).sort((a, b) => a - b);
     let best = null;
     for (let off2 = lo; off2 <= hi; off2 += step) {
@@ -1365,7 +1368,7 @@ var CountingApp = (() => {
       const lags = [];
       for (const s of scanV) {
         const v = s.v + off2;
-        const e = peaks.find((p) => p >= v && p <= v + window);
+        const e = peaks.find((p) => p >= v && p <= v + window2);
         if (e !== void 0) {
           hits++;
           lags.push(e - v);
@@ -2588,6 +2591,281 @@ var CountingApp = (() => {
       map[n] = [f.bytes, { level: 0 }];
     }
     return zipSync(map);
+  }
+
+  // browser/core/pose.mjs
+  var pose_exports = {};
+  __export(pose_exports, {
+    KP: () => KP,
+    SKELETON: () => SKELETON,
+    decode: () => decode,
+    distToPoly: () => distToPoly,
+    letterbox: () => letterbox,
+    pickPerson: () => pickPerson,
+    pointInPoly: () => pointInPoly,
+    polyCenter: () => polyCenter,
+    track: () => track,
+    wrists: () => wrists
+  });
+  var KP = ["nose", "left_eye", "right_eye", "left_ear", "right_ear", "left_shoulder", "right_shoulder", "left_elbow", "right_elbow", "left_wrist", "right_wrist", "left_hip", "right_hip", "left_knee", "right_knee", "left_ankle", "right_ankle"];
+  var SKELETON = [[15, 13], [13, 11], [16, 14], [14, 12], [11, 12], [5, 11], [6, 12], [5, 6], [5, 7], [6, 8], [7, 9], [8, 10], [1, 2], [0, 1], [0, 2], [1, 3], [2, 4], [3, 5], [4, 6]];
+  function letterbox(box, size = 640) {
+    if (!(box.w > 0 && box.h > 0 && size > 0)) throw new RangeError("Invalid image size");
+    const scale = Math.min(size / box.w, size / box.h);
+    return { scale, padX: 0, padY: 0, w: box.w * scale, h: box.h * scale };
+  }
+  function decode(dets, kps, n, lb, box, { boxThr = 0.4, kpThr = 0.3 } = {}) {
+    const x = (v) => (v - lb.padX) / lb.scale + box.x;
+    const y = (v) => (v - lb.padY) / lb.scale + box.y;
+    const people = [];
+    for (let i = 0; i < n; i++) {
+      const j = i * 5;
+      if (dets[j + 4] < boxThr) continue;
+      people.push({
+        box: { x1: x(dets[j]), y1: y(dets[j + 1]), x2: x(dets[j + 2]), y2: y(dets[j + 3]) },
+        score: dets[j + 4],
+        kps: Array.from({ length: 17 }, (_, k) => {
+          const p = (i * 17 + k) * 3;
+          return [x(kps[p]), y(kps[p + 1]), kps[p + 2]];
+        })
+      });
+    }
+    return people;
+  }
+  function segmentDistance([x, y], [ax, ay], [bx, by]) {
+    const dx = bx - ax, dy = by - ay, len = dx * dx + dy * dy;
+    const t = len ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len)) : 0;
+    return Math.hypot(x - ax - t * dx, y - ay - t * dy);
+  }
+  function pointInPoly(pt, poly) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      if (segmentDistance(pt, poly[j], poly[i]) < 1e-9) return true;
+      const [xi, yi] = poly[i], [xj, yj] = poly[j];
+      if (yi > pt[1] !== yj > pt[1] && pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+  function distToPoly(pt, poly) {
+    if (pointInPoly(pt, poly)) return 0;
+    return poly.reduce((d, p, i) => Math.min(d, segmentDistance(pt, p, poly[(i + 1) % poly.length])), Infinity);
+  }
+  function polyCenter(poly) {
+    if (!poly.length) return null;
+    return poly.reduce((s, p) => [s[0] + p[0] / poly.length, s[1] + p[1] / poly.length], [0, 0]);
+  }
+  function wrists(person, kpThr = 0.3) {
+    return [9, 10].map((i) => person.kps[i]).filter((p) => p && p[2] >= kpThr).map(([x, y]) => [x, y]);
+  }
+  var center = ({ box: b }) => [(b.x1 + b.x2) / 2, (b.y1 + b.y2) / 2];
+  function track(frames, { maxDist = 80 } = {}) {
+    let previous = [], nextId = 1;
+    return frames.map((frame) => {
+      const pairs = [];
+      frame.people.forEach((p, i) => previous.forEach((q, j) => {
+        const a = center(p), b = center(q), d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+        if (d <= maxDist) pairs.push({ i, j, d });
+      }));
+      pairs.sort((a, b) => a.d - b.d);
+      const ids = /* @__PURE__ */ new Map(), used = /* @__PURE__ */ new Set();
+      for (const { i, j } of pairs) if (!ids.has(i) && !used.has(j)) {
+        ids.set(i, previous[j].id);
+        used.add(j);
+      }
+      const people = frame.people.map((p, i) => ({ ...p, id: ids.has(i) ? ids.get(i) : nextId++ }));
+      previous = people;
+      return { ...frame, people };
+    });
+  }
+  function pickPerson(people, [x, y]) {
+    return people.filter(({ box: b }) => x >= b.x1 && x <= b.x2 && y >= b.y1 && y <= b.y2).reduce((best, p) => !best || area(p.box) < area(best.box) ? p : best, null);
+  }
+  function area(b) {
+    return (b.x2 - b.x1) * (b.y2 - b.y1);
+  }
+
+  // browser/core/attrib.mjs
+  var attrib_exports = {};
+  __export(attrib_exports, {
+    attribute: () => attribute
+  });
+  function iou(a, b) {
+    const intersection = Math.max(0, Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1)) * Math.max(0, Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1));
+    const area2 = (r) => Math.max(0, r.x2 - r.x1) * Math.max(0, r.y2 - r.y1);
+    const union = area2(a) + area2(b) - intersection;
+    return union ? intersection / union : 0;
+  }
+  function attribute(ev, frames, { packerBox, mouth, winS = 0.8, nearPx = 40, minApproach = 15 }) {
+    frames = frames.filter((f) => f.t >= ev.t - winS && f.t <= ev.t);
+    const unknown = (reason, trail = []) => ({ decision: null, score: 0, who: null, reasons: [reason], trail });
+    let packer = null, overlap = 0;
+    for (const p of frames[0]?.people || []) {
+      const value = packerBox ? iou(p.box, packerBox) : 0;
+      if (value > overlap) {
+        packer = p.id;
+        overlap = value;
+      }
+    }
+    const paths = /* @__PURE__ */ new Map();
+    for (const f of frames) for (const p of f.people) {
+      const points = wrists(p).map((pt) => ({ pt, d: distToPoly(pt, mouth) })).sort((a, b) => a.d - b.d);
+      if (!points.length) continue;
+      if (!paths.has(p.id)) paths.set(p.id, []);
+      paths.get(p.id).push({ ...points[0], t: f.t });
+    }
+    if (packer === null || !paths.has(packer)) return unknown("Không thấy cổ tay người đóng – cần duyệt");
+    const candidates = [];
+    for (const [id, path] of paths) {
+      const last = path.at(-1).d;
+      if (last <= nearPx && path[0].d - Math.min(...path.map((p) => p.d)) >= minApproach) candidates.push({ id, path, last });
+    }
+    candidates.sort((a, b) => a.last - b.last);
+    if (!candidates.length) return unknown("Không có cổ tay đi về miệng bao – cần duyệt");
+    const own = candidates.find((c) => c.id === packer), other = candidates.find((c) => c.id !== packer);
+    if (own && other && Math.abs(own.last - other.last) < 10) return unknown("Hai người cùng gần miệng bao – cần duyệt");
+    const selected = candidates[0], decision = selected.id === packer ? 1 : 0;
+    const reasons = [decision ? `Cổ tay người đóng đi về miệng bao (cách ${Math.round(selected.last)}px)` : "Người khác bỏ kiện, không phải người đóng"];
+    if (decision === 1 && ev.kind === "occlusion") reasons.push("Có che khuất – nên duyệt");
+    return {
+      decision,
+      score: Math.max(0, Math.min(1, 1 - selected.last / (2 * nearPx))) * selected.path.length / frames.length,
+      who: selected.id,
+      reasons,
+      trail: selected.path.map(({ pt, t }) => [...pt, t])
+    };
+  }
+
+  // browser/posemodel.mjs
+  var posemodel_exports = {};
+  __export(posemodel_exports, {
+    detectPeople: () => detectPeople,
+    loadPoseModel: () => loadPoseModel,
+    posesAround: () => posesAround
+  });
+  var CHANNELS = "RGB";
+  var CDN = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/";
+  var MODEL = "https://huggingface.co/Xenova/RTMO-m/resolve/main/onnx/model_int8.onnx";
+  var sessionPromise = null;
+  var runtimePromise = null;
+  function runtime() {
+    if (window.ort) return Promise.resolve(window.ort);
+    if (!runtimePromise) runtimePromise = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = `${CDN}ort.min.js`;
+      script.onload = () => window.ort ? resolve(window.ort) : reject(new Error("Không nạp được ONNX Runtime"));
+      script.onerror = () => {
+        script.remove();
+        reject(new Error("Không tải được ONNX Runtime"));
+      };
+      document.head.appendChild(script);
+    }).catch((error) => {
+      runtimePromise = null;
+      throw error;
+    });
+    return runtimePromise;
+  }
+  async function modelBytes(onProgress) {
+    let cache = null;
+    try {
+      cache = await caches.open("catcam-models");
+    } catch {
+    }
+    const cached = await cache?.match(MODEL);
+    if (cached) {
+      const bytes2 = await cached.arrayBuffer();
+      onProgress?.({ loaded: bytes2.byteLength, total: bytes2.byteLength, progress: 1 });
+      return bytes2;
+    }
+    const response = await fetch(MODEL);
+    if (!response.ok) throw new Error(`Không tải được RTMO: HTTP ${response.status}`);
+    const total = Number(response.headers.get("content-length")) || 0;
+    const chunks = [];
+    let loaded = 0;
+    if (response.body) {
+      const reader = response.body.getReader();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        loaded += value.byteLength;
+        onProgress?.({ loaded, total, progress: total ? Math.min(1, loaded / total) : null });
+      }
+    } else {
+      const bytes2 = new Uint8Array(await response.arrayBuffer());
+      chunks.push(bytes2);
+      loaded = bytes2.byteLength;
+    }
+    const bytes = new Uint8Array(loaded);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    try {
+      await cache?.put(MODEL, new Response(bytes, { headers: { "Content-Type": "application/octet-stream" } }));
+    } catch {
+    }
+    onProgress?.({ loaded, total: total || loaded, progress: 1 });
+    return bytes.buffer;
+  }
+  function loadPoseModel({ onProgress } = {}) {
+    if (!sessionPromise) sessionPromise = (async () => {
+      const ort = await runtime();
+      ort.env.wasm.wasmPaths = CDN;
+      ort.env.wasm.numThreads = 1;
+      const bytes = await modelBytes(onProgress);
+      return ort.InferenceSession.create(bytes, { executionProviders: ["wasm"] });
+    })().catch((error) => {
+      sessionPromise = null;
+      throw error;
+    });
+    return sessionPromise;
+  }
+  async function detectPeople(video, box, opts = {}) {
+    const session = await loadPoseModel(opts);
+    const lb = letterbox(box);
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 640;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.fillStyle = "rgb(114,114,114)";
+    ctx.fillRect(0, 0, 640, 640);
+    ctx.drawImage(video, box.x, box.y, box.w, box.h, lb.padX, lb.padY, lb.w, lb.h);
+    const rgba = ctx.getImageData(0, 0, 640, 640).data;
+    const plane = 640 * 640, data = new Float32Array(plane * 3);
+    for (let i = 0; i < plane; i++) {
+      data[i] = rgba[i * 4 + (CHANNELS === "RGB" ? 0 : 2)];
+      data[plane + i] = rgba[i * 4 + 1];
+      data[2 * plane + i] = rgba[i * 4 + (CHANNELS === "RGB" ? 2 : 0)];
+    }
+    const tensor = new window.ort.Tensor("float32", data, [1, 3, 640, 640]);
+    let outputs;
+    try {
+      outputs = await session.run({ [session.inputNames[0]]: tensor });
+      const dets = outputs.dets || outputs[session.outputNames[0]];
+      const keypoints = outputs.keypoints || outputs[session.outputNames[1]];
+      return decode(dets.data, keypoints.data, dets.data.length / 5, lb, box, opts);
+    } finally {
+      tensor.dispose?.();
+      for (const value of new Set(Object.values(outputs || {}))) value.dispose?.();
+    }
+  }
+  async function posesAround(video, box, tS, { winS = 0.8, n = 10, signal } = {}) {
+    if (!Number.isInteger(n) || n < 1 || winS < 0 || !Number.isFinite(tS)) throw new RangeError("Invalid sampling window");
+    const abort = () => {
+      if (signal?.aborted) throw signal.reason || new DOMException("Đã hủy", "AbortError");
+    };
+    const end = Math.max(0, Math.min(tS, Number.isFinite(video.duration) ? video.duration : tS));
+    const start = Math.max(0, end - winS), frames = [];
+    for (let i = 0; i < n; i++) {
+      abort();
+      const t = n === 1 ? end : start + (end - start) * i / (n - 1);
+      if (video.seeking || Math.abs(video.currentTime - t) > 1e-6 || video.readyState < 2) await seek(video, t, 5e3, { waitFrame: false });
+      abort();
+      const people = await detectPeople(video, box);
+      abort();
+      frames.push({ t, people });
+    }
+    return track(frames);
   }
 
   // browser/entry.mjs

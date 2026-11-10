@@ -13,3 +13,6 @@ export * as trainset from './core/trainset.mjs';
 export * as bookmarklet from './fms-bookmarklet.js';
 export * as ordercard from './ordercard.mjs';
 export const version = '0.1.0';
+export * as pose from './core/pose.mjs';
+export * as attrib from './core/attrib.mjs';
+export * as posemodel from './posemodel.mjs';
