@@ -440,11 +440,79 @@ function fmsTrackingStations_(code, cookie) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Gọi FMS qua Cloudflare Worker của người dùng (FMS chặn yêu cầu gửi thẳng từ GAS).
+// POST {type: 'tracking' | 'outbound', items: [mã], cookie} — theo script thử của người dùng (2026-11-10).
+// URL ghi đè được bằng Script Property WORKER_URL.
+// ---------------------------------------------------------------------------
+var DEFAULT_WORKER_URL = 'https://catcam.laithaianhcn59vnua.workers.dev/';
+var WORKER_VERSION = 'tracking-station-outbound-v1';
+
+function fmsWorker_(type, id, cookie) {
+  var url = prop_('WORKER_URL') || DEFAULT_WORKER_URL;
+  var res;
+  try {
+    res = UrlFetchApp.fetch(url, { method: 'post', contentType: 'application/json', muteHttpExceptions: true, followRedirects: false,
+      payload: JSON.stringify({ type: type, items: [id], cookie: cookie.mini || cookie.full }) });
+  } catch (e) { throw new Error('Không gọi được Worker (' + url + '): ' + e.message); }
+  var code = res.getResponseCode(), d = null;
+  try { d = JSON.parse(res.getContentText()); } catch (e) { /* không phải JSON */ }
+  if (d && d.error === 'INVALID_SPX_COOKIE') throw new Error('Cookie FMS hết hạn/sai — cập nhật G1 (spx_uid), G2 (spx_uk) ở tab cookie.');
+  if (code !== 200 || !d) throw new Error('Worker lỗi HTTP ' + code + (d && d.error ? ': ' + d.error : '') + ' khi ' + type + ' ' + id);
+  if (d.error) throw new Error('Worker báo lỗi khi ' + type + ' ' + id + ': ' + d.error);
+  return d;
+}
+
+/** API 1: mã đơn -> các station có TO [{station, to, scanTime, record}] theo thứ tự Worker trả. */
+function fmsWorkerStations_(code, cookie) {
+  var d = fmsWorker_('tracking', code, cookie);
+  if (d.worker_version && d.worker_version !== WORKER_VERSION) {
+    throw new Error('Worker đang chạy bản "' + d.worker_version + '", cần "' + WORKER_VERSION + '" — deploy lại SPX_Tracking_Worker.js.');
+  }
+  if (d.success !== true || !Array.isArray(d.columns) || !Array.isArray(d.results)) throw new Error('Worker trả dữ liệu tracking không đúng dạng');
+  var hit = d.results.filter(function (x) { return x && String(x.id).toUpperCase() === code; })[0];
+  var rows = (hit && hit.rows) || [];
+  var timeCol = d.columns.filter(function (c) { return /scan|time/i.test(c); })[0];
+  return rows.map(function (r) {
+    var rec = {};
+    d.columns.forEach(function (c, i) { rec[c] = r[i]; });
+    var t = timeCol ? rec[timeCol] : null;
+    if (t && /^\d{10,13}$/.test(String(t))) { var n = Number(t); t = fmsLocalIso_(n > 1e12 ? Math.floor(n / 1000) : n); }
+    return { station: String(rec.station_name || '').trim(), to: String(rec.TO_number || '').trim(), scanTime: t ? String(t).replace(' ', 'T').slice(0, 19) : null, record: rec };
+  }).filter(function (s) { return s.station && s.to; });
+}
+
+/** API 2: TO -> mọi đơn trong TO kèm giờ quét (ctime), sắp theo giờ quét. */
+function fmsWorkerToOrders_(to, cookie) {
+  var d = fmsWorker_('outbound', to, cookie);
+  if (d.status !== 'OK' || !d.data || !Array.isArray(d.data.list)) throw new Error('Worker không trả danh sách đơn của ' + to + ' (' + (d.status || 'không rõ') + ')');
+  var by = {};
+  d.data.list.forEach(function (o) {
+    var id = String((o && o.fleet_order_id) || '').trim().toUpperCase();
+    if (!id) return;
+    var t = Number(o.ctime) || 0;
+    if (!by[id] || t > by[id].ctime) by[id] = { order: id, ctime: t }; // đơn quét lại: lấy lần mới nhất (như script thử)
+  });
+  var items = Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return (a.ctime || 9e12) - (b.ctime || 9e12); });
+  items.forEach(function (x) { x.time = x.ctime > 0 ? fmsLocalIso_(x.ctime) : null; });
+  var total = Number(d.data.total);
+  return { items: items, total: isFinite(total) && total >= items.length ? total : items.length, dest: String(d.data.dest_station_name || '') };
+}
+
 /**
- * Giao diện: bắn mã đơn -> các station đã đóng đơn vào TO (mỗi TO tìm được trong bản ghi đơn -> station = người gửi TO).
+ * Giao diện: bắn mã đơn -> các station đã đóng đơn vào TO (qua Worker).
  * Người dùng chọn station rồi gọi uiFmsFetch.
  */
 function uiFmsStations(orderCode) {
+  var code = String(orderCode || '').trim().toUpperCase();
+  if (!code) throw new Error('Thiếu mã đơn');
+  var cookie = fmsCookie_();
+  var ws = fmsWorkerStations_(code, cookie);
+  return { order: code, stations: ws, allStations: ws.map(function (s) { return s.station; }), currentStation: '', source: 'worker', errors: [] };
+}
+
+/** Bản cũ: gọi FMS thẳng từ GAS (bị chặn 403), giữ lại để thử. */
+function uiFmsStationsDirect(orderCode) {
   var code = String(orderCode || '').trim().toUpperCase();
   if (!code) throw new Error('Thiếu mã đơn');
   var cookie = fmsCookie_();
@@ -459,8 +527,33 @@ function uiFmsStations(orderCode) {
     recordFields: Object.keys(rec).filter(function (k) { return /to_|station|_to$/i.test(k); }) };
 }
 
-/** Giao diện: TO của đơn tại station đã chọn + danh sách mọi đơn trong TO kèm giờ quét (ctime). */
+/**
+ * Giao diện ("Export TO"): TO của đơn tại station đã chọn (API 1) -> mọi đơn trong TO kèm giờ quét (API 2), qua Worker.
+ * Đơn quét đầu = đơn đầu tiên bỏ vào bao (bắt đầu đếm); đơn quét cuối = đơn cuối (dừng đếm).
+ */
 function uiFmsFetch(orderCode, station) {
+  var code = String(orderCode || '').trim().toUpperCase();
+  if (!code) throw new Error('Thiếu mã đơn');
+  var cookie = fmsCookie_();
+  var st = String(station || '').trim().toLowerCase();
+  var ws = fmsWorkerStations_(code, cookie);
+  var hit = ws.filter(function (x) { return x.station.toLowerCase() === st; }).pop();
+  if (!hit) return { ok: false, order: code, message: 'Không thấy TO của đơn tại station "' + station + '". Station có TO: ' +
+    (ws.map(function (x) { return x.station + ' (' + x.to + ')'; }).join(', ') || 'không có') };
+  var l = fmsWorkerToOrders_(hit.to, cookie);
+  var rows = l.items.map(function (x) { return [x.order, x.time || '', hit.to]; });
+  var mine = rows.filter(function (r) { return r[0] === code; })[0];
+  if (!mine) rows.push([code, hit.scanTime || '', hit.to]);
+  var timed = l.items.filter(function (x) { return x.time; });
+  return { ok: true, order: code, to: hit.to, station: hit.station, dest: l.dest, scanTime: mine && mine[1] ? mine[1] : hit.scanTime, lastMessage: '',
+    header: ['Mã đơn', 'Thời gian quét', 'Mã bao'], rows: rows, total: rows.length, apiTotal: l.total,
+    first: timed.length ? { order: timed[0].order, time: timed[0].time } : null,
+    last: timed.length ? { order: timed[timed.length - 1].order, time: timed[timed.length - 1].time } : null,
+    missingTime: rows.filter(function (r) { return !r[1]; }).length, source: 'Worker (ctime)', listFields: [] };
+}
+
+/** Bản cũ: gọi FMS thẳng từ GAS (bị chặn 403), giữ lại để thử. */
+function uiFmsFetchDirect(orderCode, station) {
   var code = String(orderCode || '').trim().toUpperCase();
   if (!code) throw new Error('Thiếu mã đơn');
   var cookie = fmsCookie_();
