@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build-browser.mjs",
-    "test": "node --test tests/browser/"
+    "test": "node --test \"tests/browser/*.test.mjs\""
   },
   "devDependencies": {
     "esbuild": "^0.25.10"
