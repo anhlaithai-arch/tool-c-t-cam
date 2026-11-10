@@ -1,11 +1,11 @@
 # HANDOFF
-Khóa: Codex
-Cập nhật: 2026-11-10 11:30 bởi Claude
+Khóa: trống
+Cập nhật: 2026-11-10 11:45 bởi Claude
 
 ## Đang làm
 - Việc (ưu tiên, người dùng giao 11:10): lấy TO qua Cloudflare Worker — mã đơn → Load station (API 1) → Export TO (API 2) → bảng FMS; đơn quét đầu = bắt đầu đếm, đơn quét cuối = dừng. Sau đó: huấn luyện đếm bỏ vào (đang chờ dữ liệu).
-- File đang sửa: `gas/Dem.html` (Codex, phiếu `.agents/task.md`: phần A giao diện Load station/Export TO, phần B nút tải toàn bộ mẫu)
-- Đã xong: server Worker `uiFmsStations`/`uiFmsFetch` + test (2375c07); `app/tools/train_drop.py` + `uiExportTrainingSamples` trong `gas/Code.js` (9bf7ce2); webapp deploy @2; máy mới `C:\Users\anh.laithai\projects\TOOL-CAT-CAM` đã clone, `npm install`, build, test JS 39/39, Python `.venv` (3.13) pytest 12/12.
+- File đang sửa: không
+- Đã xong: giao diện Load station/Export TO + nút tải toàn bộ mẫu (Codex, đã review); server Worker `uiFmsStations`/`uiFmsFetch` + test (2375c07); `app/tools/train_drop.py` + `uiExportTrainingSamples` trong `gas/Code.js` (9bf7ce2); webapp deploy @2; máy mới `C:\Users\anh.laithai\projects\TOOL-CAT-CAM` đã clone, `npm install`, build, test JS 39/39, Python `.venv` (3.13) pytest 12/12.
 - Còn lại (việc tồn, theo `docs/TONG_HOP.md`):
   1. Thu mẫu đã duyệt (✓/✗) từ nhiều TO → `app/tools/build_dataset.py` → huấn luyện bộ phân loại nhỏ (3 khung ±0,4s) → ONNX chạy trong trình duyệt để chấm lại lượt → đo trên TO chưa dùng để huấn luyện.
   2. Dùng thêm cam A.
@@ -25,6 +25,8 @@ Cập nhật: 2026-11-10 11:30 bởi Claude
 - Máy hiện tại: không có GPU NVIDIA (Intel Graphics, 16 GB RAM) → chỉ huấn luyện mô hình nhỏ trên CPU; mô hình lớn cần máy RTX 4060 cũ.
 
 ## Chờ người dùng
+- Đồng ý `clasp push` + `clasp update-deployment` để chạy thử luồng Worker trên webapp thật.
+- Xác nhận chỗ để cookie: đang đọc spreadsheet "Phân quyền" G1/G2 (script thử của người dùng đọc tab 🔐Cookies🔑 A1/A2/C1).
 - Đã chọn: thu mẫu bằng duyệt trên webapp. `clasp push` xong 2026-11-10 10:33 (code trên GAS vốn đã trùng repo; giữ `gas/aa.js` của người dùng).
 - Webapp đã deploy @2 (2026-11-10), quyền DOMAIN (quản trị Workspace chặn ANYONE). Link: https://script.google.com/macros/s/AKfycbzRq-C0E2nQcYOCkseXwnjojbspMLYaFAA3XHgJT5faw8KVWXT5VdyZzVfWh87CQ6nfPA/exec (trang Đếm: thêm `?page=dem`). Chờ người dùng mở thử, chạy `setup()` nếu chưa, bắt đầu duyệt mẫu.
 - Chọn việc tiếp theo trong "Còn lại".
