@@ -28,7 +28,7 @@ Cập nhật: 2026-11-10 bởi Claude
 - Máy hiện tại: không có GPU NVIDIA (Intel Graphics, 16 GB RAM) → chỉ huấn luyện mô hình nhỏ trên CPU; mô hình lớn cần máy RTX 4060 cũ.
 
 ## Chờ người dùng
-- Đồng ý push + deploy bản giao diện mới (chưa thử với video/TO thật).
+- ĐÃ deploy @4 (2026-11-10 20:41) + git push: phiếu 1-5. Chờ người dùng thử video TO2026102219TA2 trên webapp, duyệt ✓/✗, bấm Huấn luyện AI; gom video nhiều camera (docs/MUC_TIEU_AI.md).
 - Đã push + deploy @3 (2026-11-10 11:11). Chờ người dùng chạy thử Load station / Export TO với đơn thật.
 - Xác nhận chỗ để cookie: đang đọc spreadsheet "Phân quyền" G1/G2 (script thử của người dùng đọc tab 🔐Cookies🔑 A1/A2/C1).
 - Đã chọn: thu mẫu bằng duyệt trên webapp. `clasp push` xong 2026-11-10 10:33 (code trên GAS vốn đã trùng repo; giữ `gas/aa.js` của người dùng).
